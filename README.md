@@ -112,7 +112,7 @@ The entire stack is containerized for "One-Command Deployment". It orchestrates 
 ### Quick Start
 ```bash
 # 1. Clone the repository
-git clone <your-repo-link>
+git clone https://github.com/AndreaProzzo21/k8s-cloud-gateway.git
 
 # 2. Configure your .env file with your K8s Tokens
 cp .env.example .env
