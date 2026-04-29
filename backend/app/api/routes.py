@@ -6,6 +6,8 @@ from app.api.deps import get_current_core_manager
 
 router = APIRouter()
 
+# --- ENDPOINT NAMESPACES ---
+
 @router.post("/namespaces/{name}")
 async def create_new_namespace(
     name: str,
@@ -14,6 +16,29 @@ async def create_new_namespace(
     """Crea un nuovo namespace (richiede permessi di Cluster Admin)."""
     manager.create_namespace(name)
     return {"message": f"Namespace '{name}' creato correttamente"}
+
+@router.get("/namespaces")
+async def get_all_namespaces(manager: CoreManager = Depends(get_current_core_manager)):
+    """Restituisce la lista di tutti i namespace (Admin)."""
+    return manager.list_namespaces()
+
+# --- ENDPOINT CONFIGMAPS ---
+@router.get("/namespaces/{namespace}/configmaps")
+async def get_configmaps(namespace: str, manager: CoreManager = Depends(get_current_core_manager)):
+    """Restituisce le ConfigMap del namespace."""
+    return manager.list_configmaps(namespace)
+
+# --- ENDPOINT SECRETS ---
+@router.get("/namespaces/{namespace}/secrets")
+async def get_secrets(namespace: str, manager: CoreManager = Depends(get_current_core_manager)):
+    """Restituisce i Secret (solo nomi/chiavi) del namespace."""
+    return manager.list_secrets(namespace)
+
+# --- ENDPOINT EVENTS ---
+@router.get("/namespaces/{namespace}/events")
+async def get_events(namespace: str, manager: CoreManager = Depends(get_current_core_manager)):
+    """Restituisce gli eventi per monitorare anomalie (crash, pull errors, ecc)."""
+    return manager.list_events(namespace)
 
 # --- POD ROUTES ---
 
@@ -127,3 +152,17 @@ async def deploy_via_file(
     yaml_str = content.decode("utf-8")
     
     return manager.create_deployment(namespace, yaml_str)
+
+# --- UNIVERSAL APPLY ---
+@router.post("/namespaces/{namespace}/apply")
+async def apply_resource(
+    namespace: str, 
+    file: UploadFile = File(...), 
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """
+    Endpoint universale per inviare qualsiasi file YAML (anche con più risorse ---).
+    """
+    content = await file.read()
+    yaml_text = content.decode('utf-8')
+    return manager.apply_universal_yaml(yaml_text, namespace)

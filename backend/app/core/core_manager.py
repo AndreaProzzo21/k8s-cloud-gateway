@@ -2,30 +2,84 @@ from app.core.exceptions import (
     K8sResourceNotFoundException, 
     K8sUnauthorisedException, 
     K8sCommunicationException,
-    K8sBaseException # Assicurati che sia importata per create_deployment
+    K8sBaseException
 )
 from kubernetes.client.rest import ApiException
 import yaml
 from datetime import datetime
 from kubernetes.client import V1Namespace, V1ObjectMeta
+import tempfile
+from kubernetes import utils
 
 
 class CoreManager:
     def __init__(self, k8s_apis: dict):
         """
         Il costruttore riceve il dizionario di API generato dalla Factory.
-        Non c'è più un'istanza globale Singleton.
         """
         self.core_v1 = k8s_apis["core_v1"]
         self.apps_v1 = k8s_apis["apps_v1"]
+        # FONDAMENTALE: Recuperiamo l'api_client sottostante per le funzioni utils
+        self.api_client = self.core_v1.api_client
+
+    # --- NAMESPACES ---
 
     def create_namespace(self, name: str):
         """Crea un nuovo namespace nel cluster."""
         try:
             body = V1Namespace(metadata=V1ObjectMeta(name=name))
             return self.core_v1.create_namespace(body=body)
-        except ApiException as e:
+        except Exception as e:
             self._handle_exception(e, f"Creazione Namespace '{name}'")
+
+    def list_namespaces(self):
+        """Elenca tutti i namespace nel cluster."""
+        try:
+            ns_list = self.core_v1.list_namespace()
+            return [{"name": ns.metadata.name, "status": ns.status.phase} for ns in ns_list.items]
+        except Exception as e:
+            self._handle_exception(e, "List Namespaces")
+
+    # --- CONFIGMAPS ---
+    def list_configmaps(self, namespace):
+        """Elenca le ConfigMap in un determinato namespace."""
+        try:
+            cms = self.core_v1.list_namespaced_config_map(namespace)
+            return [{
+                "name": cm.metadata.name,
+                "keys": list(cm.data.keys()) if cm.data else []
+            } for cm in cms.items]
+        except Exception as e:
+            self._handle_exception(e, f"List ConfigMaps in {namespace}")
+
+    # --- SECRETS ---
+    def list_secrets(self, namespace):
+        """Elenca i Secret (solo nomi e chiavi) per sicurezza."""
+        try:
+            secrets = self.core_v1.list_namespaced_secret(namespace)
+            return [{
+                "name": s.metadata.name,
+                "type": s.type,
+                "keys": list(s.data.keys()) if s.data else []
+            } for s in secrets.items]
+        except Exception as e:
+            self._handle_exception(e, f"List Secrets in {namespace}")
+
+    # --- EVENTS ---
+    def list_events(self, namespace):
+        """Recupera gli eventi del namespace per il debug."""
+        try:
+            events = self.core_v1.list_namespaced_event(namespace)
+            sorted_events = sorted(events.items, key=lambda x: x.last_timestamp if x.last_timestamp else 0, reverse=True)
+            return [{
+                "type": e.type,
+                "reason": e.reason,
+                "message": e.message,
+                "object": f"{e.involved_object.kind}/{e.involved_object.name}",
+                "time": e.last_timestamp.strftime("%H:%M:%S") if e.last_timestamp else "N/A"
+            } for e in sorted_events]
+        except Exception as e:
+            self._handle_exception(e, f"List Events in {namespace}")
 
     # --- POD OPERATIONS ---
 
@@ -41,8 +95,8 @@ class CoreManager:
                 }
                 for pod in pods_data.items
             ]
-        except ApiException as e:
-            self._handle_exception(e, f"Namespace '{namespace}'")
+        except Exception as e:
+            self._handle_exception(e, f"List Pods in '{namespace}'")
 
     def get_pod_by_name(self, name: str, namespace: str):
         try:
@@ -56,21 +110,17 @@ class CoreManager:
                 "start_time": pod.status.start_time,
                 "labels": pod.metadata.labels
             }
-        except ApiException as e:
-            self._handle_exception(e, f"Pod '{name}' nel namespace '{namespace}'")
-
+        except Exception as e:
+            self._handle_exception(e, f"Pod '{name}' in '{namespace}'")
 
     def get_pod_logs(self, name: str, namespace: str, tail_lines: int = None):
-        """Recupera i log di un pod. Se tail_lines è definito, recupera solo le ultime N righe."""
         try:
             params = {"name": name, "namespace": namespace}
             if tail_lines:
                 params["tail_lines"] = tail_lines
-            
-            # Ritorna il log come stringa piana
             return self.core_v1.read_namespaced_pod_log(**params)
-        except ApiException as e:
-            self._handle_exception(e, f"Log del Pod '{name}'")
+        except Exception as e:
+            self._handle_exception(e, f"Logs for Pod '{name}'")
 
     # --- DEPLOYMENT OPERATIONS ---
 
@@ -87,8 +137,8 @@ class CoreManager:
                 }
                 for dep in deployments.items
             ]
-        except ApiException as e:
-            self._handle_exception(e, f"Namespace '{namespace}'")
+        except Exception as e:
+            self._handle_exception(e, f"List Deployments in '{namespace}'")
 
     def get_deployment_by_name(self, name: str, namespace: str):
         try:
@@ -107,26 +157,20 @@ class CoreManager:
                 "image": dep.spec.template.spec.containers[0].image,
                 "labels": dep.metadata.labels
             }
-        except ApiException as e:
-            self._handle_exception(e, f"Deployment '{name}' nel namespace '{namespace}'")
-
+        except Exception as e:
+            self._handle_exception(e, f"Deployment '{name}' in '{namespace}'")
 
     def scale_deployment(self, name: str, namespace: str, replicas: int):
-        """Scala il numero di repliche di un deployment."""
         try:
             body = {"spec": {"replicas": replicas}}
             return self.apps_v1.patch_namespaced_deployment_scale(
-                name=name, 
-                namespace=namespace, 
-                body=body
+                name=name, namespace=namespace, body=body
             )
-        except ApiException as e:
+        except Exception as e:
             self._handle_exception(e, f"Scaling Deployment '{name}'")
 
     def restart_deployment(self, name: str, namespace: str):
-        """Esegue il rollout restart di un deployment (aggiornando l'annotazione del template)."""
         try:
-            # Simuliamo il rollout restart aggiornando un'annotazione nel template
             now = datetime.utcnow().isoformat() + "Z"
             body = {
                 "spec": {
@@ -140,27 +184,23 @@ class CoreManager:
                 }
             }
             return self.apps_v1.patch_namespaced_deployment(
-                name=name, 
-                namespace=namespace, 
-                body=body
+                name=name, namespace=namespace, body=body
             )
-        except ApiException as e:
+        except Exception as e:
             self._handle_exception(e, f"Restart Deployment '{name}'")
 
     def delete_deployment(self, name: str, namespace: str):
-        """Elimina un deployment specifico."""
         try:
             return self.apps_v1.delete_namespaced_deployment(
-                name=name,
-                namespace=namespace
+                name=name, namespace=namespace
             )
-        except ApiException as e:
-            self._handle_exception(e, f"Eliminazione Deployment '{name}'")
+        except Exception as e:
+            self._handle_exception(e, f"Delete Deployment '{name}'")
 
-
-    # --- SERVICE OPERATIONS ---
+    # --- SERVICE OPERATIONS (AGGIUNTI DI NUOVO) ---
 
     def list_services_in_namespace(self, namespace: str):
+        """Recupera la lista dei Service nel namespace."""
         try:
             services = self.core_v1.list_namespaced_service(namespace)
             return [
@@ -176,10 +216,11 @@ class CoreManager:
                 }
                 for svc in services.items
             ]
-        except ApiException as e:
-            self._handle_exception(e, f"Namespace '{namespace}'")
+        except Exception as e:
+            self._handle_exception(e, f"List Services in '{namespace}'")
 
     def get_service_by_name(self, name: str, namespace: str):
+        """Recupera i dettagli di un singolo Service."""
         try:
             svc = self.core_v1.read_namespaced_service(name=name, namespace=namespace)
             return {
@@ -194,8 +235,8 @@ class CoreManager:
                     for p in svc.spec.ports
                 ] if svc.spec.ports else []
             }
-        except ApiException as e:
-            self._handle_exception(e, f"Service '{name}' nel namespace '{namespace}'")
+        except Exception as e:
+            self._handle_exception(e, f"Service '{name}' in '{namespace}'")
 
     # --- WRITE OPERATIONS ---
 
@@ -216,18 +257,45 @@ class CoreManager:
             }
         except yaml.YAMLError:
             raise K8sBaseException("Sintassi YAML non valida", status_code=400)
-        except ApiException as e:
-            if e.status == 409:
+        except Exception as e:
+            if hasattr(e, 'status') and e.status == 409:
                 raise K8sBaseException("La risorsa esiste già", status_code=409)
-            self._handle_exception(e, "Operazione di Deploy")
+            self._handle_exception(e, "Create Deployment")
+
+    def apply_universal_yaml(self, yaml_content, namespace):
+        """
+        Applica un manifesto YAML multi-risorsa utilizzando le utility di K8s.
+        """
+        with tempfile.NamedTemporaryFile(mode='w+', suffix='.yaml') as temp_file:
+            temp_file.write(yaml_content)
+            temp_file.flush()
+            
+            try:
+                utils.create_from_yaml(
+                    self.api_client, 
+                    temp_file.name, 
+                    namespace=namespace
+                )
+                return {"status": "success", "message": "Risorse create correttamente nel cluster"}
+            except Exception as e:
+                # Se l'errore non è di tipo K8s API (non ha .status), lo incapsuliamo
+                if not hasattr(e, 'status'):
+                    raise K8sBaseException(f"Errore durante l'apply universale: {str(e)}", status_code=500)
+                self._handle_exception(e, "Universal Apply")
 
     # --- HELPER PER ECCEZIONI ---
 
-    def _handle_exception(self, e: ApiException, context: str):
-        """Metodo interno per centralizzare la gestione degli errori API."""
+    def _handle_exception(self, e: Exception, context: str):
+        """Centralizza la gestione degli errori, verificando la presenza di attributi K8s."""
+        # Se non è una ApiException (quindi non ha .status), la trasformiamo in eccezione base
+        if not hasattr(e, 'status'):
+             raise K8sBaseException(f"Errore inaspettato ({context}): {str(e)}", status_code=500)
+
         if e.status == 404:
             raise K8sResourceNotFoundException(f"{context} non trovato", status_code=404)
         elif e.status in [401, 403]:
             raise K8sUnauthorisedException(f"Permessi insufficienti per {context}", status_code=e.status)
+        elif e.status == 409:
+            raise K8sBaseException(f"Conflitto: la risorsa ({context}) esiste già", status_code=409)
         else:
-            raise K8sCommunicationException(f"Errore API Kubernetes ({context}): {e.reason}", status_code=e.status)
+            raise K8sCommunicationException(f"Errore API Kubernetes ({context}): {getattr(e, 'reason', str(e))}", status_code=e.status)
