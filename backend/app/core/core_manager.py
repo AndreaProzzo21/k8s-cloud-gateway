@@ -66,17 +66,29 @@ class CoreManager:
             self._handle_exception(e, f"List Secrets in {namespace}")
 
     # --- EVENTS ---
+# --- EVENTS ---
     def list_events(self, namespace):
         """Recupera gli eventi del namespace per il debug."""
         try:
             events = self.core_v1.list_namespaced_event(namespace)
-            sorted_events = sorted(events.items, key=lambda x: x.last_timestamp if x.last_timestamp else 0, reverse=True)
+            
+            # Definiamo una data minima di fallback per gli eventi che non hanno timestamp
+            min_date = datetime.min.replace(tzinfo=None) 
+            
+            # Ordiniamo per data (più recenti prima)
+            # Gestiamo il fatto che last_timestamp potrebbe essere None o avere fusi orari
+            sorted_events = sorted(
+                events.items, 
+                key=lambda x: (x.last_timestamp.replace(tzinfo=None) if x.last_timestamp else min_date), 
+                reverse=True
+            )
+            
             return [{
                 "type": e.type,
                 "reason": e.reason,
                 "message": e.message,
                 "object": f"{e.involved_object.kind}/{e.involved_object.name}",
-                "time": e.last_timestamp.strftime("%H:%M:%S") if e.last_timestamp else "N/A"
+                "time": e.last_timestamp.strftime("%H:%M:%S") if e.last_timestamp else "Now"
             } for e in sorted_events]
         except Exception as e:
             self._handle_exception(e, f"List Events in {namespace}")
