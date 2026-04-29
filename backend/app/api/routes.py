@@ -6,6 +6,15 @@ from app.api.deps import get_current_core_manager
 
 router = APIRouter()
 
+@router.post("/namespaces/{name}")
+async def create_new_namespace(
+    name: str,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Crea un nuovo namespace (richiede permessi di Cluster Admin)."""
+    manager.create_namespace(name)
+    return {"message": f"Namespace '{name}' creato correttamente"}
+
 # --- POD ROUTES ---
 
 @router.get("/namespaces/{namespace}/pods", response_model=List[Dict])

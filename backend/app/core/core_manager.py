@@ -7,6 +7,7 @@ from app.core.exceptions import (
 from kubernetes.client.rest import ApiException
 import yaml
 from datetime import datetime
+from kubernetes.client import V1Namespace, V1ObjectMeta
 
 
 class CoreManager:
@@ -17,6 +18,14 @@ class CoreManager:
         """
         self.core_v1 = k8s_apis["core_v1"]
         self.apps_v1 = k8s_apis["apps_v1"]
+
+    def create_namespace(self, name: str):
+        """Crea un nuovo namespace nel cluster."""
+        try:
+            body = V1Namespace(metadata=V1ObjectMeta(name=name))
+            return self.core_v1.create_namespace(body=body)
+        except ApiException as e:
+            self._handle_exception(e, f"Creazione Namespace '{name}'")
 
     # --- POD OPERATIONS ---
 
