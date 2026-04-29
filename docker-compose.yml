@@ -1,0 +1,38 @@
+services:
+  # --- BACKEND: API GATEWAY (FastAPI) ---
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: k8s_api_gateway_v1
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # Sincronizza la cartella app per il reload automatico di uvicorn
+      - ./backend/app:/app/app
+      # Monta i certificati necessari per la connessione K8s
+      - ./backend/certs:/app/certs:ro
+    networks:
+      - k8s_network
+    restart: always
+
+  # --- FRONTEND: SERVER WEB (Nginx) ---
+  frontend:
+    image: nginx:alpine
+    container_name: k8s_frontend_v1
+    ports:
+      - "80:80"
+    volumes:
+      # Monta i file statici (HTML, JS, CSS) nella root di Nginx
+      - ./frontend:/usr/share/nginx/html:ro
+    networks:
+      - k8s_network
+    restart: always
+    depends_on:
+      - backend
+
+networks:
+  k8s_network:
+    driver: bridge
