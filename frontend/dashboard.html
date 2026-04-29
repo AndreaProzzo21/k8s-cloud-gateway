@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>K8s Gateway - Console</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="dashboard-page">
+    <nav class="navbar">
+        <div class="nav-brand"><i class="fas fa-cubes"></i> K8S CLOUD GATEWAY | <span id="displayCluster" style="color:white"></span></div>
+        <div style="display: flex; align-items: center; gap: 20px;">
+            <div class="nav-user"><i class="fas fa-user-shield"></i> Profile: <b id="displayProfile" style="color:var(--accent)"></b></div>
+            <button onclick="logout()" class="btn-logout"><i class="fas fa-sign-out-alt"></i> Logout</button>
+        </div>
+    </nav>
+
+    <div class="main-container">
+        <aside class="sidebar">
+            <ul>
+                <li id="menu-pods" class="active" onclick="setActive(this); loadPods()"><i class="fas fa-microchip"></i> Pods List</li>
+                <li id="menu-deps" onclick="setActive(this); loadDeployments()"><i class="fas fa-layer-group"></i> Deployments</li>
+                <li id="menu-svcs" onclick="setActive(this); loadServices()"><i class="fas fa-network-wired"></i> Services</li>
+                <li id="menu-upload" onclick="setActive(this); showDeployForm()"><i class="fas fa-upload"></i> YAML Deploy</li>
+            </ul>
+        </aside>
+
+        <main class="content">
+            <div id="controlsContainer" class="controls">
+                <div style="flex-grow: 1;">
+                    <label style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-bottom: 5px;">TARGET NAMESPACE</label>
+                    <input type="text" id="namespaceInput" value="default" placeholder="es: messaging">
+                </div>
+                <button id="mainActionBtn" onclick="refreshCurrentView()" class="btn-action" style="align-self: flex-end;">Refresh Data</button>
+            </div>
+
+            <div id="resultArea">
+                <div style="text-align: center; margin-top: 100px; color: var(--text-muted);">
+                    <p>Seleziona una risorsa per iniziare il monitoraggio.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const token = localStorage.getItem('k8s_jwt');
+        if (!token) window.location.href = 'index.html';
+
+        document.getElementById('displayCluster').innerText = localStorage.getItem('current_cluster');
+        document.getElementById('displayProfile').innerText = localStorage.getItem('current_profile');
+
+        const API_BASE = "http://localhost:8000/api/v1";
+        let currentView = 'pods';
+
+        function setActive(el) {
+            document.querySelectorAll('.sidebar li').forEach(li => li.classList.remove('active'));
+            el.classList.add('active');
+            document.getElementById('controlsContainer').style.display = 'flex';
+        }
+
+        function refreshCurrentView() {
+            if (currentView === 'pods') loadPods();
+            else if (currentView === 'deployments') loadDeployments();
+            else if (currentView === 'services') loadServices();
+        }
+
+        async function apiCall(endpoint, method = 'GET', isText = false) {
+            const options = {
+                method: method,
+                headers: { 'Authorization': `Bearer ${token}` }
+            };
+            
+            const response = await fetch(`${API_BASE}${endpoint}`, options);
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || errorData.detail || "Errore nella richiesta");
+            }
+            
+            return isText ? await response.text() : await response.json();
+        }
+
+        // --- PODS & LOGS ---
+        async function loadPods() {
+            currentView = 'pods';
+            const ns = document.getElementById('namespaceInput').value;
+            const resArea = document.getElementById('resultArea');
+            resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
+            try {
+                const data = await apiCall(`/namespaces/${ns}/pods`);
+                let html = `<h2>Pods in [${ns}]</h2><table class="data-table">
+                            <thead><tr><th>Name</th><th>Status</th><th>Pod IP</th><th>Actions</th></tr></thead><tbody>`;
+                
+                if (data.length === 0) {
+                    resArea.innerHTML = "<p>Nessun Pod trovato in questo namespace.</p>";
+                    return;
+                }
+
+                data.forEach(p => {
+                    const sClass = p.status.toLowerCase() === 'running' ? 'status-running' : 'status-pending';
+                    html += `<tr>
+                        <td><b>${p.name}</b></td>
+                        <td><span class="badge ${sClass}">${p.status}</span></td>
+                        <td><code>${p.pod_ip || 'N/A'}</code></td>
+                        <td>
+                            <button onclick="viewLogs('${p.name}')" class="btn-small" title="Visualizza Log Tail"><i class="fas fa-terminal"></i></button>
+                            <button onclick="downloadLogs('${p.name}')" class="btn-small" title="Scarica Log Completi"><i class="fas fa-file-download"></i></button>
+                        </td>
+                    </tr>`;
+                });
+                resArea.innerHTML = html + '</tbody></table><div id="logConsoleArea"></div>';
+            } catch (err) { showError(err.message); }
+        }
+
+        async function viewLogs(podName) {
+            const ns = document.getElementById('namespaceInput').value;
+            const consoleArea = document.getElementById('logConsoleArea');
+            consoleArea.innerHTML = '<div style="margin-top:20px; text-align:center"><i class="fas fa-circle-notch fa-spin"></i> Fetching logs...</div>';
+            
+            try {
+                const logs = await apiCall(`/namespaces/${ns}/pods/${podName}/logs?tail=100`, 'GET', true);
+                consoleArea.innerHTML = `
+                    <div style="margin-top:20px; background:#000; border-radius:8px; border:1px solid var(--border)">
+                        <div style="padding:10px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center">
+                            <span style="font-size:0.8rem; color:#0f0">CONSOLE: ${podName} (Tail 100)</span>
+                            <button onclick="this.parentElement.parentElement.remove()" style="background:none; border:none; color:#fff; cursor:pointer">&times;</button>
+                        </div>
+                        <pre style="margin:0; padding:15px; color:#0f0; font-family:monospace; font-size:0.8rem; overflow-x:auto; max-height:400px"><code>${logs || 'Nessun log disponibile.'}</code></pre>
+                    </div>`;
+                consoleArea.scrollIntoView({ behavior: 'smooth' });
+            } catch (err) { alert("Errore recupero log: " + err.message); }
+        }
+
+        async function downloadLogs(podName) {
+            const ns = document.getElementById('namespaceInput').value;
+            try {
+                const logs = await apiCall(`/namespaces/${ns}/pods/${podName}/logs`, 'GET', true);
+                const blob = new Blob([logs], { type: 'text/plain' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${podName}_logs.txt`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+            } catch (err) { alert("Errore download log: " + err.message); }
+        }
+
+        // --- DEPLOYMENTS & OPERATIONS ---
+        async function loadDeployments() {
+            currentView = 'deployments';
+            const ns = document.getElementById('namespaceInput').value;
+            const resArea = document.getElementById('resultArea');
+            resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+            
+            try {
+                const data = await apiCall(`/namespaces/${ns}/deployments`);
+                let html = `<h2>Deployments in [${ns}]</h2><table class="data-table">
+                            <thead><tr><th>Name</th><th>Replicas</th><th>Status</th><th>Actions</th></tr></thead><tbody>`;
+                
+                if (data.length === 0) {
+                    resArea.innerHTML = "<p>Nessun Deployment trovato.</p>";
+                    return;
+                }
+
+                data.forEach(d => {
+                    html += `<tr>
+                        <td><b>${d.name}</b></td>
+                        <td>${d.replicas_ready}/${d.replicas_desired}</td>
+                        <td><span class="badge ${d.status === 'Ready' ? 'status-running' : 'status-pending'}">${d.status}</span></td>
+                        <td>
+                            <button onclick="scaleDeploy('${d.name}', ${d.replicas_desired})" class="btn-small" title="Scale"><i class="fas fa-arrows-alt-v"></i> Scale</button>
+                            <button onclick="restartDeploy('${d.name}')" class="btn-small" style="color:var(--warning)" title="Restart"><i class="fas fa-sync-alt"></i> Restart</button>
+                            <button onclick="deleteDeploy('${d.name}')" class="btn-small" style="color:var(--danger)" title="Delete"><i class="fas fa-trash"></i> Delete</button>
+                        </td>
+                    </tr>`;
+                });
+                resArea.innerHTML = html + '</tbody></table>';
+            } catch (err) { showError(err.message); }
+        }
+
+        async function scaleDeploy(name, currentReplicas) {
+            const ns = document.getElementById('namespaceInput').value;
+            const newReplicas = prompt(`Quante replicas desideri per ${name}? (Attuali: ${currentReplicas})`, currentReplicas);
+            
+            if (newReplicas !== null && newReplicas !== "") {
+                try {
+                    await apiCall(`/namespaces/${ns}/deployments/${name}/scale?replicas=${newReplicas}`, 'PATCH');
+                    alert(`Richiesta di scaling inviata per ${name}`);
+                    loadDeployments();
+                } catch (err) { alert("Errore scaling: " + err.message); }
+            }
+        }
+
+        async function restartDeploy(name) {
+            const ns = document.getElementById('namespaceInput').value;
+            if (confirm(`Confermi il rollout restart di ${name}?`)) {
+                try {
+                    await apiCall(`/namespaces/${ns}/deployments/${name}/restart`, 'POST');
+                    alert(`Rollout restart avviato per ${name}`);
+                    loadDeployments();
+                } catch (err) { alert("Errore restart: " + err.message); }
+            }
+        }
+
+        async function deleteDeploy(name) {
+            const ns = document.getElementById('namespaceInput').value;
+            if (confirm(`ATTENZIONE: Sei sicuro di voler eliminare DEFINITIVAMENTE il deployment ${name}?`)) {
+                try {
+                    await apiCall(`/namespaces/${ns}/deployments/${name}`, 'DELETE');
+                    alert(`Deployment ${name} eliminato.`);
+                    loadDeployments();
+                } catch (err) { alert("Errore eliminazione: " + err.message); }
+            }
+        }
+
+        // --- SERVICES ---
+        async function loadServices() {
+            currentView = 'services';
+            const ns = document.getElementById('namespaceInput').value;
+            const resArea = document.getElementById('resultArea');
+            resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
+            try {
+                const data = await apiCall(`/namespaces/${ns}/services`);
+                let html = `<h2>Services in [${ns}]</h2><table class="data-table">
+                            <thead><tr><th>Name</th><th>Type</th><th>Cluster IP</th></tr></thead><tbody>`;
+                data.forEach(s => {
+                    html += `<tr><td><b>${s.name}</b></td><td>${s.type}</td><td><code>${s.cluster_ip}</code></td></tr>`;
+                });
+                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessun Service trovato.</p>';
+            } catch (err) { showError(err.message); }
+        }
+
+        // --- YAML DEPLOY ---
+        function showDeployForm() {
+            currentView = 'upload';
+            const resArea = document.getElementById('resultArea');
+            resArea.innerHTML = `
+                <div class="deploy-container">
+                    <h2><i class="fas fa-file-code"></i> Deploy Resource</h2>
+                    <p style="color:var(--text-muted); font-size:0.8rem">Upload YAML file or paste manifest. Target: selected namespace.</p>
+                    
+                    <div style="margin-bottom: 1rem; border: 1px dashed var(--border); padding: 15px; border-radius: 6px; text-align:center">
+                        <label style="cursor:pointer; color:var(--accent)">
+                            <i class="fas fa-cloud-upload-alt"></i> Scegli file YAML...
+                            <input type="file" id="fileInput" accept=".yaml,.yml" style="display:none" onchange="handleFileUpload(event)">
+                        </label>
+                        <div id="fileNameDisplay" style="margin-top:10px; font-size:0.7rem; color:var(--text-muted)">Nessun file selezionato</div>
+                    </div>
+
+                    <textarea id="yamlEditor" placeholder="apiVersion: apps/v1\nkind: Deployment..."></textarea>
+                    <button onclick="executeDeploy()" class="btn-primary">Execute Deploy</button>
+                </div>`;
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            document.getElementById('fileNameDisplay').innerText = `Caricato: ${file.name}`;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                document.getElementById('yamlEditor').value = e.target.result;
+            };
+            reader.readAsText(file);
+        }
+
+        async function executeDeploy() {
+            const ns = document.getElementById('namespaceInput').value;
+            const yamlContent = document.getElementById('yamlEditor').value;
+            
+            if(!yamlContent.trim()) { alert("L'editor è vuoto!"); return; }
+
+            const blob = new Blob([yamlContent], { type: 'text/yaml' });
+            const formData = new FormData();
+            formData.append('file', blob, 'deploy.yaml');
+
+            try {
+                const response = await fetch(`${API_BASE}/namespaces/${ns}/deployments/upload`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData
+                });
+                const result = await response.json();
+                if(response.ok) {
+                    alert("Successo: Risorsa " + (result.name || "YAML") + " creata!");
+                    loadDeployments();
+                } else {
+                    alert("Errore Deploy: " + (result.message || result.detail));
+                }
+            } catch (err) { alert("Errore di rete durante il deploy."); }
+        }
+
+        // --- UTILS ---
+        function showError(msg) {
+            document.getElementById('resultArea').innerHTML = `
+                <div class="error-box"><i class="fas fa-exclamation-triangle"></i> ACCESS DENIED: ${msg}</div>`;
+        }
+
+        function logout() {
+            localStorage.clear();
+            window.location.href = 'index.html';
+        }
+
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .btn-small { background: #334155; color: #38bdf8; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; margin-right: 5px; transition: 0.2s; font-size: 0.8rem; }
+            .btn-small:hover { background: #38bdf8; color: #0f172a; }
+            .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body>
+</html>

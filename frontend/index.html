@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>K8s Gateway - Accesso</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="auth-page">
+    <div class="login-card">
+        <h1>Cloud Gateway</h1>
+        <p>Enterprise Management Console</p>
+        
+        <form id="loginForm">
+            <div class="form-group">
+                <label>Cluster Identifier</label>
+                <input type="text" id="clusterId" placeholder="es: TESI" required autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label>Access Profile</label>
+                <input type="text" id="profile" placeholder="es: admin" required autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label>Gateway Credentials</label>
+                <input type="password" id="password" placeholder="••••••••" required>
+            </div>
+            <button type="submit" class="btn-primary">Connect to Cluster</button>
+        </form>
+        <div id="errorMessage" style="color: var(--danger); text-align: center; margin-top: 1rem; font-size: 0.9rem;"></div>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const msgDiv = document.getElementById('errorMessage');
+            msgDiv.innerText = "";
+
+            const payload = {
+                cluster_id: document.getElementById('clusterId').value,
+                profile: document.getElementById('profile').value,
+                password: document.getElementById('password').value
+            };
+
+            try {
+                const response = await fetch('http://localhost:8000/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    localStorage.setItem('k8s_jwt', data.access_token);
+                    localStorage.setItem('current_cluster', payload.cluster_id);
+                    localStorage.setItem('current_profile', payload.profile);
+                    window.location.href = 'dashboard.html';
+                } else {
+                    msgDiv.innerText = data.detail || "Authentication Failed";
+                }
+            } catch (err) {
+                msgDiv.innerText = "Error: System Backend Unreachable";
+            }
+        });
+    </script>
+</body>
+</html>
