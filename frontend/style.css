@@ -1,6 +1,6 @@
 :root {
     /* Palette Soft Panna & K8s Blue - Affinata */
-    --bg-light: #f9fbfe;        /* Sfondo ancora più etereo */
+    --bg-light: #f9fbfe;
     --side-nav: #ffffff;        
     --accent: #326ce5;          
     --accent-soft: #f0f4ff;     
@@ -10,8 +10,13 @@
     --success: #10b981;         
     --danger: #ef4444;          
     --warning: #f59e0b;         
-    --border: #eef2f6;          /* Bordi più chiari e meno netti */
+    --border: #eef2f6;
     --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+}
+
+/* 🔴 FIX STRUTTURA BASE */
+html, body {
+    height: 100%;
 }
 
 body { 
@@ -48,15 +53,29 @@ body {
 }
 .nav-brand { font-weight: 700; color: var(--accent); font-size: 18px; text-transform: uppercase; letter-spacing: 0.05em; }
 
-.main-container { display: flex; height: calc(100vh - 70px); }
-
-/* SIDEBAR - Full Height & Minimal */
-.sidebar { 
-    width: 260px; background: var(--side-nav); border-right: 1px solid var(--border); 
-    padding: 2rem 1rem; display: flex; flex-direction: column; box-sizing: border-box;
-    height: 100%; /* Occupa tutta la colonna */
+/* 🔴 FIX MAIN CONTAINER */
+.main-container { 
+    display: flex; 
+    height: calc(100vh - 70px); 
+    overflow: hidden;
 }
+
+/* SIDEBAR */
+.sidebar { 
+    width: 260px; 
+    background: var(--side-nav); 
+    border-right: 1px solid var(--border); 
+    padding: 2rem 1rem; 
+    display: flex; 
+    flex-direction: column; 
+    box-sizing: border-box;
+    height: 100%;
+    overflow-y: auto; /* 🔥 FIX SCROLL */
+    flex-shrink: 0;
+}
+
 .sidebar ul { list-style: none; padding: 0; margin: 0; }
+
 .sidebar li { 
     padding: 12px 16px; cursor: pointer; color: var(--text-muted); margin-bottom: 6px;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 12px; 
@@ -66,9 +85,17 @@ body {
 .sidebar li:hover { background: var(--accent-soft); color: var(--accent); }
 .sidebar li.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 
-.content { flex-grow: 1; padding: 3rem; overflow-y: auto; background: var(--bg-light); }
+/* 🔴 FIX CONTENT */
+.content { 
+    flex-grow: 1; 
+    padding: 3rem; 
+    overflow-y: auto; /* 🔥 scroll indipendente */
+    background: var(--bg-light);
+    height: 100%;
+    box-sizing: border-box;
+}
 
-/* CONTROLS - Floating Card Style */
+/* CONTROLS */
 .controls { 
     display: flex; gap: 12px; margin-bottom: 2.5rem; background: var(--card-bg); 
     padding: 1rem 1.5rem; border-radius: 16px; border: 1px solid var(--border); align-items: center;
@@ -81,20 +108,19 @@ body {
 }
 .controls input:focus { border-color: var(--accent); outline: none; background: #fff; }
 
-/* PULSANTI - Nuova versione Delicata (Ghost/Light Style) */
+/* BUTTONS */
 .btn-small, .btn-action, .btn-primary { 
     border-radius: 10px; font-weight: 600; cursor: pointer; transition: 0.3s;
     border: 1px solid transparent; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
 }
 
-/* Pulsante Plus (Crea Namespace) e Action */
 .btn-small { background: #fff; border: 1px solid var(--border); color: var(--text-muted); padding: 8px 12px; }
 .btn-small:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 
 .btn-action, .btn-primary { background: var(--accent); color: #fff; padding: 12px 24px; font-size: 0.9rem; }
 .btn-action:hover { background: #2557c0; box-shadow: 0 4px 15px rgba(50, 108, 229, 0.2); }
 
-/* Pulsanti nelle Tabelle (Scale, Restart, Delete) - Light & Colorful */
+/* TABLE BUTTONS */
 button[onclick*="scaleDeploy"] { background: #eff6ff; color: #3b82f6; border-color: #dbeafe; }
 button[onclick*="scaleDeploy"]:hover { background: #3b82f6; color: #fff; }
 
@@ -107,7 +133,7 @@ button[onclick*="deleteDeploy"]:hover { background: #ef4444; color: #fff; }
 .btn-logout { background: #fff; color: var(--text-muted); border: 1px solid var(--border); padding: 8px 16px; font-size: 0.8rem; border-radius: 10px; }
 .btn-logout:hover { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
 
-/* TABLES - Elegant & Clean */
+/* TABLES */
 .data-table { 
     width: 100%; border-collapse: separate; border-spacing: 0; background: var(--card-bg); 
     border-radius: 20px; border: 1px solid var(--border); box-shadow: var(--shadow);
@@ -121,7 +147,7 @@ button[onclick*="deleteDeploy"]:hover { background: #ef4444; color: #fff; }
 .data-table td { padding: 16px 20px; border-bottom: 1px solid var(--border); font-size: 0.9rem; vertical-align: middle; }
 .data-table tr:hover { background: #f8fafc; }
 
-/* STATUS BADGES - Soft Pill Style */
+/* BADGES */
 .badge { 
     padding: 6px 12px; border-radius: 30px; font-size: 0.7rem; font-weight: 700; 
     text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid transparent;
@@ -129,7 +155,7 @@ button[onclick*="deleteDeploy"]:hover { background: #ef4444; color: #fff; }
 .status-running { background: #ecfdf5; color: #059669; border-color: #d1fae5; }
 .status-pending { background: #fffbeb; color: #d97706; border-color: #fef3c7; }
 
-/* DEPLOY CONTAINER & EDITOR */
+/* DEPLOY */
 .deploy-container { 
     max-width: 900px; margin: 0 auto; background: var(--card-bg); 
     padding: 3rem; border-radius: 24px; border: 1px solid var(--border);
@@ -146,15 +172,13 @@ button[onclick*="deleteDeploy"]:hover { background: #ef4444; color: #fff; }
 }
 #yamlEditor:focus { border-color: var(--accent); outline: none; background: #fff; box-shadow: 0 0 0 4px rgba(50, 108, 229, 0.05); }
 
-
-
-/* AUTH PAGE */
+/* AUTH PAGE (seconda definizione mantenuta) */
 .auth-page { 
     display: flex; 
     flex-direction: column;
-    justify-content: center; /* Centra verticale */
-    align-items: center;     /* Centra orizzontale */
-    min-height: 105vh;       /* Forza l'altezza della finestra */
+    justify-content: center;
+    align-items: center;
+    min-height: 105vh;
     width: 100vw;
     background: #f8fafc;
 }
@@ -188,7 +212,7 @@ button[onclick*="deleteDeploy"]:hover { background: #ef4444; color: #fff; }
     margin: 0.5rem 0 0 0;
 }
 
-/* Form Groups */
+/* FORM */
 .form-group {
     margin-bottom: 1.5rem;
     text-align: left;
@@ -223,7 +247,7 @@ button[onclick*="deleteDeploy"]:hover { background: #ef4444; color: #fff; }
     box-shadow: 0 0 0 4px rgba(50, 108, 229, 0.08);
 }
 
-/* Pulsanti */
+/* BUTTON */
 .btn-primary { 
     background: var(--accent); 
     color: #fff; 
