@@ -1,4 +1,3 @@
-# app/core/core_manager.py
 from app.core.exceptions import (
     K8sResourceNotFoundException, 
     K8sUnauthorisedException, 
@@ -149,7 +148,7 @@ class CoreManager:
         except ApiException as e:
             self._handle_exception(e, f"Eliminazione Deployment '{name}'")
 
-            
+
     # --- SERVICE OPERATIONS ---
 
     def list_services_in_namespace(self, namespace: str):
