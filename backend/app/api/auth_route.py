@@ -14,7 +14,7 @@ async def login(
     Se la password è corretta, restituisce un JWT che impacchetta 
     le credenziali K8s di quel profilo specifico.
     """
-    # Chiamiamo la funzione aggiornata che accetta 'profile'
+    
     token = create_access_token(cluster_id, profile, password)
     
     return {
