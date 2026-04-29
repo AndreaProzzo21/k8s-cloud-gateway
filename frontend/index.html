@@ -4,12 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>K8s Gateway - Accesso</title>
+    <!-- Font Inter per coerenza col CSS -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="auth-page">
     <div class="login-card">
-        <h1>K8s Cloud Gateway</h1>
-        <p>Multi-Cluster Management Console</p>
+        <div class="auth-header">
+            <div>
+                <!-- Semplice cerchio blu che richiama il timone di K8s -->
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent); margin-bottom: 0.5rem;">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="2" x2="12" y2="22"></line>
+                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                    <path d="m4.93 4.93 14.14 14.14"></path>
+                    <path d="m19.07 4.93-14.14 14.14"></path>
+                </svg>
+            </div>
+            <h1>K8s Cloud Gateway</h1>
+            <p>Multi-Cluster Management Console</p>
+        </div>
         
         <form id="loginForm">
             <div class="form-group">
@@ -24,16 +38,22 @@
                 <label>Gateway Credentials</label>
                 <input type="password" id="password" placeholder="••••••••" required>
             </div>
-            <button type="submit" class="btn-primary">Connect to Cluster</button>
+            <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem;">
+                Connect to Cluster
+            </button>
         </form>
-        <div id="errorMessage" style="color: var(--danger); text-align: center; margin-top: 1rem; font-size: 0.9rem;"></div>
+        <div id="errorMessage"></div>
     </div>
 
     <script>
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const msgDiv = document.getElementById('errorMessage');
+            const btn = e.target.querySelector('button');
+            
             msgDiv.innerText = "";
+            btn.innerText = "Connecting...";
+            btn.style.opacity = "0.7";
 
             const payload = {
                 cluster_id: document.getElementById('clusterId').value,
@@ -42,6 +62,7 @@
             };
 
             try {
+                // Sostituisci con l'URL corretto del tuo backend se diverso da localhost
                 const response = await fetch('http://localhost:8000/auth/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -57,9 +78,13 @@
                     window.location.href = 'dashboard.html';
                 } else {
                     msgDiv.innerText = data.detail || "Authentication Failed";
+                    btn.innerText = "Connect to Cluster";
+                    btn.style.opacity = "1";
                 }
             } catch (err) {
                 msgDiv.innerText = "Error: System Backend Unreachable";
+                btn.innerText = "Connect to Cluster";
+                btn.style.opacity = "1";
             }
         });
     </script>

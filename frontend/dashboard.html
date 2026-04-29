@@ -8,30 +8,80 @@
 </head>
 <body class="dashboard-page">
     <nav class="navbar">
-        <div class="nav-brand"><i class="fas fa-cubes"></i> K8S CLOUD GATEWAY | <span id="displayCluster" style="color:white"></span></div>
-        <div style="display: flex; align-items: center; gap: 20px;">
-            <div class="nav-user"><i class="fas fa-user-shield"></i> Profile: <b id="displayProfile" style="color:var(--accent)"></b></div>
-            <button onclick="logout()" class="btn-logout"><i class="fas fa-sign-out-alt"></i> Logout</button>
+        <div class="nav-brand">
+            <i class="fas fa-cubes"></i> KUBERNETES CLOUD GATEWAY
+        </div>
+        
+        <div class="nav-right-container">
+            <div class="status-group">
+                <div class="info-badge">
+                    <span class="label">CLUSTER</span>
+                    <span id="displayCluster" class="value"></span>
+                </div>
+                <div class="info-badge">
+                    <span class="label">PROFILE</span>
+                    <span id="displayProfile" class="value"></span>
+                </div>
+            </div>
+            <div class="nav-divider"></div>
+            <button onclick="logout()" class="btn-logout">
+                <i class="fas fa-sign-out-alt"></i> Logout
+            </button>
         </div>
     </nav>
 
     <div class="main-container">
-        <aside class="sidebar">
+        <!-- SIDEBAR AGGIORNATA CON SCROLL INTERNO -->
+        <aside class="sidebar" style="overflow-y: auto; max-height: 100%;">
+            <div class="sidebar-section">Workloads</div>
             <ul>
-                <li id="menu-pods" class="active" onclick="setActive(this); loadPods()"><i class="fas fa-microchip"></i> Pods List</li>
-                <li id="menu-deps" onclick="setActive(this); loadDeployments()"><i class="fas fa-layer-group"></i> Deployments</li>
-                <li id="menu-svcs" onclick="setActive(this); loadServices()"><i class="fas fa-network-wired"></i> Services</li>
-                <li id="menu-upload" onclick="setActive(this); showDeployForm()"><i class="fas fa-upload"></i> YAML Deploy</li>
+                <li id="menu-pods" class="active" onclick="setActive(this); loadPods()">
+                    <i class="fas fa-microchip"></i> Pods List
+                </li>
+                <li id="menu-deps" onclick="setActive(this); loadDeployments()">
+                    <i class="fas fa-layer-group"></i> Deployments
+                </li>
+            </ul>
+
+            <div class="sidebar-section">Network & Config</div>
+            <ul>
+                <li id="menu-svcs" onclick="setActive(this); loadServices()">
+                    <i class="fas fa-network-wired"></i> Services
+                </li>
+                <li id="menu-cm" onclick="setActive(this); loadConfigMaps()">
+                    <i class="fas fa-th-list"></i> ConfigMaps
+                </li>
+                <li id="menu-secrets" onclick="setActive(this); loadSecrets()">
+                    <i class="fas fa-key"></i> Secrets
+                </li>
+            </ul>
+
+            <div class="sidebar-section">Cluster Admin</div>
+            <ul>
+                <li id="menu-events" onclick="setActive(this); loadEvents()">
+                    <i class="fas fa-bell"></i> Events Log
+                </li>
+                <li id="menu-upload" onclick="setActive(this); showApplyForm()">
+                    <i class="fas fa-file-import"></i> Cluster Apply
+                </li>
             </ul>
         </aside>
 
         <main class="content">
             <div id="controlsContainer" class="controls">
                 <div style="flex-grow: 1;">
-                    <label style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-bottom: 5px;">TARGET NAMESPACE</label>
-                    <input type="text" id="namespaceInput" value="default" placeholder="es: messaging">
+                    <label style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-bottom: 5px; font-weight: 600;">TARGET NAMESPACE</label>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <select id="nsSelect" onchange="syncNamespace(this)" style="padding: 8px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.85rem; color: var(--text-main); background: #fff;">
+                            <option value="default">Loading namespaces...</option>
+                        </select>
+                        <input type="text" id="namespaceInput" value="default" placeholder="o scrivi qui..." style="max-width: 150px;">
+                        <button onclick="addNewNamespace()" class="btn-small plus-btn" title="Crea Nuovo Namespace">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
                 </div>
-                <button id="mainActionBtn" onclick="refreshCurrentView()" class="btn-action" style="align-self: flex-end;">Refresh Data</button>
+                <button id="mainActionBtn" onclick="refreshCurrentView()" class="btn-action" style="margin-top: 21px;">Refresh Data</button>
             </div>
 
             <div id="resultArea">
@@ -52,6 +102,13 @@
         const API_BASE = "http://localhost:8000/api/v1";
         let currentView = 'pods';
 
+        loadNamespaceList();
+
+        function syncNamespace(sel) {
+            document.getElementById('namespaceInput').value = sel.value;
+            refreshCurrentView();
+        }
+
         function setActive(el) {
             document.querySelectorAll('.sidebar li').forEach(li => li.classList.remove('active'));
             el.classList.add('active');
@@ -62,41 +119,69 @@
             if (currentView === 'pods') loadPods();
             else if (currentView === 'deployments') loadDeployments();
             else if (currentView === 'services') loadServices();
+            else if (currentView === 'configmaps') loadConfigMaps();
+            else if (currentView === 'secrets') loadSecrets();
+            else if (currentView === 'events') loadEvents();
         }
 
-        async function apiCall(endpoint, method = 'GET', isText = false) {
+        async function apiCall(endpoint, method = 'GET', isText = false, body = null) {
             const options = {
                 method: method,
                 headers: { 'Authorization': `Bearer ${token}` }
             };
-            
+            if (body) options.body = body;
+
             const response = await fetch(`${API_BASE}${endpoint}`, options);
-            
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.message || errorData.detail || "Errore nella richiesta");
             }
-            
             return isText ? await response.text() : await response.json();
         }
 
-        // --- PODS & LOGS ---
+        async function loadNamespaceList() {
+            const sel = document.getElementById('nsSelect');
+            try {
+                const namespaces = await apiCall('/namespaces');
+                sel.innerHTML = '';
+                namespaces.forEach(ns => {
+                    const opt = document.createElement('option');
+                    opt.value = ns.name;
+                    opt.innerText = `${ns.name} (${ns.status})`;
+                    if(ns.name === 'default') opt.selected = true;
+                    sel.appendChild(opt);
+                });
+            } catch (err) {
+                sel.innerHTML = '<option value="default">No Permissions to List</option>';
+            }
+        }
+
+        async function addNewNamespace() {
+            const name = prompt("Inserisci il nome del nuovo namespace:");
+            if (!name) return;
+            try {
+                const response = await apiCall(`/namespaces/${name}`, 'POST');
+                alert(response.message);
+                loadNamespaceList();
+                document.getElementById('namespaceInput').value = name;
+                refreshCurrentView();
+            } catch (err) {
+                alert("Errore (RBAC?): " + err.message);
+            }
+        }
+
         async function loadPods() {
             currentView = 'pods';
             const ns = document.getElementById('namespaceInput').value;
             const resArea = document.getElementById('resultArea');
             resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
-
             try {
                 const data = await apiCall(`/namespaces/${ns}/pods`);
                 let html = `<h2>Pods in [${ns}]</h2><table class="data-table">
                             <thead><tr><th>Name</th><th>Status</th><th>Pod IP</th><th>Actions</th></tr></thead><tbody>`;
-                
                 if (data.length === 0) {
-                    resArea.innerHTML = "<p>Nessun Pod trovato in questo namespace.</p>";
-                    return;
+                    resArea.innerHTML = "<p>Nessun Pod trovato.</p>"; return;
                 }
-
                 data.forEach(p => {
                     const sClass = p.status.toLowerCase() === 'running' ? 'status-running' : 'status-pending';
                     html += `<tr>
@@ -104,8 +189,8 @@
                         <td><span class="badge ${sClass}">${p.status}</span></td>
                         <td><code>${p.pod_ip || 'N/A'}</code></td>
                         <td>
-                            <button onclick="viewLogs('${p.name}')" class="btn-small" title="Visualizza Log Tail"><i class="fas fa-terminal"></i></button>
-                            <button onclick="downloadLogs('${p.name}')" class="btn-small" title="Scarica Log Completi"><i class="fas fa-file-download"></i></button>
+                            <button onclick="viewLogs('${p.name}')" class="btn-small table-btn" title="Logs"><i class="fas fa-terminal"></i></button>
+                            <button onclick="downloadLogs('${p.name}')" class="btn-small table-btn" title="Download"><i class="fas fa-file-download"></i></button>
                         </td>
                     </tr>`;
                 });
@@ -117,19 +202,18 @@
             const ns = document.getElementById('namespaceInput').value;
             const consoleArea = document.getElementById('logConsoleArea');
             consoleArea.innerHTML = '<div style="margin-top:20px; text-align:center"><i class="fas fa-circle-notch fa-spin"></i> Fetching logs...</div>';
-            
             try {
                 const logs = await apiCall(`/namespaces/${ns}/pods/${podName}/logs?tail=100`, 'GET', true);
                 consoleArea.innerHTML = `
-                    <div style="margin-top:20px; background:#000; border-radius:8px; border:1px solid var(--border)">
-                        <div style="padding:10px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center">
-                            <span style="font-size:0.8rem; color:#0f0">CONSOLE: ${podName} (Tail 100)</span>
-                            <button onclick="this.parentElement.parentElement.remove()" style="background:none; border:none; color:#fff; cursor:pointer">&times;</button>
+                    <div style="margin-top:20px; background:#fcfdfe; border-radius:12px; border:1px solid var(--border); box-shadow: var(--shadow)">
+                        <div style="padding:12px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background: #fff; border-radius: 12px 12px 0 0">
+                            <span style="font-size:0.75rem; font-weight:700; color:var(--accent)">LOGS: ${podName} (Tail 100)</span>
+                            <button onclick="this.parentElement.parentElement.remove()" style="background:none; border:none; color:var(--text-muted); cursor:pointer"><i class="fas fa-times"></i></button>
                         </div>
-                        <pre style="margin:0; padding:15px; color:#0f0; font-family:monospace; font-size:0.8rem; overflow-x:auto; max-height:400px"><code>${logs || 'Nessun log disponibile.'}</code></pre>
+                        <pre style="margin:0; padding:15px; color:var(--text-main); font-family:'JetBrains Mono',monospace; font-size:0.8rem; overflow-x:auto; max-height:400px"><code>${logs || 'Nessun log disponibile.'}</code></pre>
                     </div>`;
                 consoleArea.scrollIntoView({ behavior: 'smooth' });
-            } catch (err) { alert("Errore recupero log: " + err.message); }
+            } catch (err) { alert("Errore: " + err.message); }
         }
 
         async function downloadLogs(podName) {
@@ -139,176 +223,234 @@
                 const blob = new Blob([logs], { type: 'text/plain' });
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.href = url;
-                a.download = `${podName}_logs.txt`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                a.remove();
-            } catch (err) { alert("Errore download log: " + err.message); }
+                a.href = url; a.download = `${podName}_logs.txt`;
+                document.body.appendChild(a); a.click(); a.remove();
+            } catch (err) { alert(err.message); }
         }
 
-        // --- DEPLOYMENTS & OPERATIONS ---
         async function loadDeployments() {
             currentView = 'deployments';
             const ns = document.getElementById('namespaceInput').value;
             const resArea = document.getElementById('resultArea');
             resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
-            
             try {
                 const data = await apiCall(`/namespaces/${ns}/deployments`);
                 let html = `<h2>Deployments in [${ns}]</h2><table class="data-table">
                             <thead><tr><th>Name</th><th>Replicas</th><th>Status</th><th>Actions</th></tr></thead><tbody>`;
-                
-                if (data.length === 0) {
-                    resArea.innerHTML = "<p>Nessun Deployment trovato.</p>";
-                    return;
-                }
-
                 data.forEach(d => {
                     html += `<tr>
                         <td><b>${d.name}</b></td>
                         <td>${d.replicas_ready}/${d.replicas_desired}</td>
                         <td><span class="badge ${d.status === 'Ready' ? 'status-running' : 'status-pending'}">${d.status}</span></td>
                         <td>
-                            <button onclick="scaleDeploy('${d.name}', ${d.replicas_desired})" class="btn-small" title="Scale"><i class="fas fa-arrows-alt-v"></i> Scale</button>
-                            <button onclick="restartDeploy('${d.name}')" class="btn-small" style="color:var(--warning)" title="Restart"><i class="fas fa-sync-alt"></i> Restart</button>
-                            <button onclick="deleteDeploy('${d.name}')" class="btn-small" style="color:var(--danger)" title="Delete"><i class="fas fa-trash"></i> Delete</button>
+                            <button onclick="scaleDeploy('${d.name}', ${d.replicas_desired})" class="btn-small scale-btn">Scale</button>
+                            <button onclick="restartDeploy('${d.name}')" class="btn-small restart-btn">Restart</button>
+                            <button onclick="deleteDeploy('${d.name}')" class="btn-small delete-btn">Delete</button>
                         </td>
                     </tr>`;
                 });
-                resArea.innerHTML = html + '</tbody></table>';
+                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessun Deployment trovato.</p>';
             } catch (err) { showError(err.message); }
         }
 
         async function scaleDeploy(name, currentReplicas) {
             const ns = document.getElementById('namespaceInput').value;
-            const newReplicas = prompt(`Quante replicas desideri per ${name}? (Attuali: ${currentReplicas})`, currentReplicas);
-            
-            if (newReplicas !== null && newReplicas !== "") {
+            const newReplicas = prompt(`Scale ${name} a:`, currentReplicas);
+            if (newReplicas !== null) {
                 try {
                     await apiCall(`/namespaces/${ns}/deployments/${name}/scale?replicas=${newReplicas}`, 'PATCH');
-                    alert(`Richiesta di scaling inviata per ${name}`);
                     loadDeployments();
-                } catch (err) { alert("Errore scaling: " + err.message); }
+                } catch (err) { alert(err.message); }
             }
         }
 
         async function restartDeploy(name) {
             const ns = document.getElementById('namespaceInput').value;
-            if (confirm(`Confermi il rollout restart di ${name}?`)) {
+            if (confirm(`Riavviare ${name}?`)) {
                 try {
                     await apiCall(`/namespaces/${ns}/deployments/${name}/restart`, 'POST');
-                    alert(`Rollout restart avviato per ${name}`);
                     loadDeployments();
-                } catch (err) { alert("Errore restart: " + err.message); }
+                } catch (err) { alert(err.message); }
             }
         }
 
         async function deleteDeploy(name) {
             const ns = document.getElementById('namespaceInput').value;
-            if (confirm(`ATTENZIONE: Sei sicuro di voler eliminare DEFINITIVAMENTE il deployment ${name}?`)) {
+            if (confirm(`Eliminare definitivamente ${name}?`)) {
                 try {
                     await apiCall(`/namespaces/${ns}/deployments/${name}`, 'DELETE');
-                    alert(`Deployment ${name} eliminato.`);
                     loadDeployments();
-                } catch (err) { alert("Errore eliminazione: " + err.message); }
+                } catch (err) { alert(err.message); }
             }
         }
 
-        // --- SERVICES ---
         async function loadServices() {
             currentView = 'services';
             const ns = document.getElementById('namespaceInput').value;
             const resArea = document.getElementById('resultArea');
             resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
-
             try {
                 const data = await apiCall(`/namespaces/${ns}/services`);
                 let html = `<h2>Services in [${ns}]</h2><table class="data-table">
                             <thead><tr><th>Name</th><th>Type</th><th>Cluster IP</th></tr></thead><tbody>`;
-                data.forEach(s => {
-                    html += `<tr><td><b>${s.name}</b></td><td>${s.type}</td><td><code>${s.cluster_ip}</code></td></tr>`;
-                });
+                data.forEach(s => html += `<tr><td><b>${s.name}</b></td><td>${s.type}</td><td><code>${s.cluster_ip}</code></td></tr>`);
                 resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessun Service trovato.</p>';
             } catch (err) { showError(err.message); }
         }
 
-        // --- YAML DEPLOY ---
-        function showDeployForm() {
+        async function loadConfigMaps() {
+            currentView = 'configmaps';
+            const ns = document.getElementById('namespaceInput').value;
+            const resArea = document.getElementById('resultArea');
+            resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+            try {
+                const data = await apiCall(`/namespaces/${ns}/configmaps`);
+                let html = `<h2>ConfigMaps in [${ns}]</h2><table class="data-table">
+                            <thead><tr><th>Name</th><th>Keys</th></tr></thead><tbody>`;
+                data.forEach(cm => html += `<tr><td><b>${cm.name}</b></td><td><code style="font-size:0.75rem">${cm.keys.join(', ') || 'none'}</code></td></tr>`);
+                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessuna ConfigMap trovata.</p>';
+            } catch (err) { showError(err.message); }
+        }
+
+        async function loadSecrets() {
+            currentView = 'secrets';
+            const ns = document.getElementById('namespaceInput').value;
+            const resArea = document.getElementById('resultArea');
+            resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+            try {
+                const data = await apiCall(`/namespaces/${ns}/secrets`);
+                let html = `<h2>Secrets in [${ns}]</h2><table class="data-table">
+                            <thead><tr><th>Name</th><th>Type</th><th>Keys</th></tr></thead><tbody>`;
+                data.forEach(s => html += `<tr><td><b>${s.name}</b></td><td><small>${s.type}</small></td><td><code style="font-size:0.75rem">${s.keys.join(', ') || 'none'}</code></td></tr>`);
+                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessun Secret trovato.</p>';
+            } catch (err) { showError(err.message); }
+        }
+
+        async function loadEvents() {
+            currentView = 'events';
+            const ns = document.getElementById('namespaceInput').value;
+            const resArea = document.getElementById('resultArea');
+            resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+            try {
+                const data = await apiCall(`/namespaces/${ns}/events`);
+                let html = `<h2>Cluster Events in [${ns}]</h2><table class="data-table">
+                            <thead><tr><th>Time</th><th>Reason</th><th>Object</th><th>Message</th></tr></thead><tbody>`;
+                data.forEach(e => {
+                    const typeClass = e.type === 'Warning' ? 'color: var(--danger)' : 'color: var(--success)';
+                    html += `<tr><td><small>${e.time}</small></td><td><b style="${typeClass}">${e.reason}</b></td><td><small>${e.object}</small></td><td>${e.message}</td></tr>`;
+                });
+                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessun evento recente.</p>';
+            } catch (err) { showError(err.message); }
+        }
+
+        function showApplyForm() {
             currentView = 'upload';
             const resArea = document.getElementById('resultArea');
             resArea.innerHTML = `
                 <div class="deploy-container">
-                    <h2><i class="fas fa-file-code"></i> Deploy Resource</h2>
-                    <p style="color:var(--text-muted); font-size:0.8rem">Upload YAML file or paste manifest. Target: selected namespace.</p>
+                    <h2><i class="fas fa-magic"></i> Cluster Apply</h2>
+                    <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom: 20px;">Universal Apply: Supporta Manifest Multi-Risorsa (Deployment, Service, ConfigMap ecc.) applicati da soli o insieme separati da ---</p>
+                    <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom: 20px;">Quick Deploy: Supporta soltanto Manifest Deployment univoco</p>
                     
-                    <div style="margin-bottom: 1rem; border: 1px dashed var(--border); padding: 15px; border-radius: 6px; text-align:center">
-                        <label style="cursor:pointer; color:var(--accent)">
-                            <i class="fas fa-cloud-upload-alt"></i> Scegli file YAML...
+                    <div style="display:flex; gap:10px; margin-bottom:20px;">
+                        <button id="btnUniversal" onclick="setApplyMode('universal')" class="btn-small" style="flex:1; background:var(--accent-soft); border-color:var(--accent); color:var(--accent)">
+                            <i class="fas fa-layer-group"></i> Universal Apply
+                        </button>
+                        <button id="btnQuick" onclick="setApplyMode('quick')" class="btn-small" style="flex:1;">
+                            <i class="fas fa-bolt"></i> Quick Deploy
+                        </button>
+                    </div>
+
+                    <div class="upload-zone">
+                        <label>
+                            <i class="fas fa-cloud-upload-alt"></i> Seleziona file YAML
                             <input type="file" id="fileInput" accept=".yaml,.yml" style="display:none" onchange="handleFileUpload(event)">
                         </label>
                         <div id="fileNameDisplay" style="margin-top:10px; font-size:0.7rem; color:var(--text-muted)">Nessun file selezionato</div>
                     </div>
-
                     <textarea id="yamlEditor" placeholder="apiVersion: apps/v1\nkind: Deployment..."></textarea>
-                    <button onclick="executeDeploy()" class="btn-primary">Execute Deploy</button>
+                    <button id="execApplyBtn" onclick="executeApply()" class="btn-action" style="width:100%">Esegui Apply Universale</button>
                 </div>`;
+            window.applyMode = 'universal';
+        }
+
+        function setApplyMode(mode) {
+            window.applyMode = mode;
+            const btnU = document.getElementById('btnUniversal');
+            const btnQ = document.getElementById('btnQuick');
+            const exec = document.getElementById('execApplyBtn');
+
+            if(mode === 'universal') {
+                btnU.style.background = 'var(--accent-soft)'; btnU.style.borderColor = 'var(--accent)'; btnU.style.color = 'var(--accent)';
+                btnQ.style.background = '#fff'; btnQ.style.borderColor = 'var(--border)'; btnQ.style.color = 'var(--text-muted)';
+                exec.innerText = 'Esegui Apply Universale';
+            } else {
+                btnQ.style.background = 'var(--accent-soft)'; btnQ.style.borderColor = 'var(--accent)'; btnQ.style.color = 'var(--accent)';
+                btnU.style.background = '#fff'; btnU.style.borderColor = 'var(--border)'; btnU.style.color = 'var(--text-muted)';
+                exec.innerText = 'Esegui Quick Deploy';
+            }
         }
 
         function handleFileUpload(event) {
             const file = event.target.files[0];
             if (!file) return;
-            document.getElementById('fileNameDisplay').innerText = `Caricato: ${file.name}`;
+            document.getElementById('fileNameDisplay').innerText = `File: ${file.name}`;
             const reader = new FileReader();
-            reader.onload = (e) => {
-                document.getElementById('yamlEditor').value = e.target.result;
-            };
+            reader.onload = (e) => document.getElementById('yamlEditor').value = e.target.result;
             reader.readAsText(file);
         }
 
-        async function executeDeploy() {
+        async function executeApply() {
             const ns = document.getElementById('namespaceInput').value;
             const yamlContent = document.getElementById('yamlEditor').value;
-            
-            if(!yamlContent.trim()) { alert("L'editor è vuoto!"); return; }
+            if(!yamlContent.trim()) { alert("YAML vuoto!"); return; }
 
-            const blob = new Blob([yamlContent], { type: 'text/yaml' });
+            const endpoint = window.applyMode === 'universal' ? `/namespaces/${ns}/apply` : `/namespaces/${ns}/deployments/upload`;
             const formData = new FormData();
-            formData.append('file', blob, 'deploy.yaml');
+            formData.append('file', new Blob([yamlContent], { type: 'text/yaml' }), 'resource.yaml');
 
             try {
-                const response = await fetch(`${API_BASE}/namespaces/${ns}/deployments/upload`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${token}` },
-                    body: formData
-                });
-                const result = await response.json();
-                if(response.ok) {
-                    alert("Successo: Risorsa " + (result.name || "YAML") + " creata!");
-                    loadDeployments();
-                } else {
-                    alert("Errore Deploy: " + (result.message || result.detail));
-                }
-            } catch (err) { alert("Errore di rete durante il deploy."); }
+                const response = await apiCall(endpoint, 'POST', false, formData);
+                alert("Operazione completata con successo!");
+                if(window.applyMode === 'quick') loadDeployments();
+            } catch (err) { alert("Errore: " + err.message); }
         }
 
-        // --- UTILS ---
         function showError(msg) {
-            document.getElementById('resultArea').innerHTML = `
-                <div class="error-box"><i class="fas fa-exclamation-triangle"></i> ACCESS DENIED: ${msg}</div>`;
+            document.getElementById('resultArea').innerHTML = `<div class="error-box"><i class="fas fa-exclamation-triangle"></i> ACCESS DENIED: ${msg}</div>`;
         }
 
-        function logout() {
-            localStorage.clear();
-            window.location.href = 'index.html';
-        }
+        function logout() { localStorage.clear(); window.location.href = 'index.html'; }
 
+        // --- STYLES ---
         const style = document.createElement('style');
         style.innerHTML = `
-            .btn-small { background: #334155; color: #38bdf8; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; margin-right: 5px; transition: 0.2s; font-size: 0.8rem; }
-            .btn-small:hover { background: #38bdf8; color: #0f172a; }
-            .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+            /* NAVBAR E BADGE */
+            .nav-right-container { display: flex; align-items: center; gap: 15px; }
+            .status-group { display: flex; gap: 10px; }
+            .info-badge { background: #f8fafc; border: 1px solid var(--border); padding: 4px 12px; border-radius: 8px; display: flex; flex-direction: column; min-width: 80px; }
+            .info-badge .label { font-size: 0.55rem; font-weight: 800; color: var(--text-muted); line-height: 1; margin-bottom: 2px; }
+            .info-badge .value { font-size: 0.8rem; font-weight: 700; color: var(--accent); line-height: 1; }
+            .nav-divider { width: 1px; height: 24px; background: var(--border); }
+            
+            /* SIDEBAR SECTION HEADERS */
+            .sidebar-section { padding: 20px 24px 8px; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+            
+            /* BUTTONS */
+            .plus-btn { height: 38px; width: 40px; color: var(--accent) !important; background: #fff; border: 1px solid var(--border); }
+            .table-btn { color: var(--text-muted); background: #fff; border: 1px solid var(--border); }
+            .table-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+            .scale-btn { background: #eff6ff; color: #3b82f6; border-color: #dbeafe; padding: 6px 12px; }
+            .restart-btn { background: #fffbeb; color: #d97706; border-color: #fef3c7; padding: 6px 12px; }
+            .delete-btn { background: #fef2f2; color: #dc2626; border-color: #fee2e2; padding: 6px 12px; }
+            
+            /* DEPLOY ZONE */
+            .upload-zone { border: 2px dashed var(--border); padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 15px; }
+            .upload-zone label { cursor: pointer; color: var(--accent); font-weight: 600; }
+
+            /* SCROLLBAR SIDEBAR - Per renderla invisibile ma funzionale */
+            .sidebar::-webkit-scrollbar { width: 4px; }
+            .sidebar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
         `;
         document.head.appendChild(style);
     </script>
