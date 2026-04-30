@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>K8s Gateway - Console</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
@@ -93,7 +94,7 @@
                     <label style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-bottom: 5px; font-weight: 600;">SELECT NAMESPACE</label>
                     <div id="nsContextArea" style="display: flex; gap: 8px; align-items: center;"></div>
                 </div>
-                <input type="text" id="labelFilter" placeholder="Filtra per label (es: app=web)" 
+                <input type="text" id="labelFilter" placeholder="Filter by label (ex: app=web)" 
        style="width: 200px; padding: 8px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.8rem;">
                 
                 
@@ -371,8 +372,11 @@
                         </tr>`;
                 });
 
-                resArea.innerHTML = data.length > 0 ? html + '</tbody></table><div id="logConsoleArea"></div>' : '<p>No Pods found.</p>';
-                
+                resArea.innerHTML = data.length > 0 
+                    ? html + '</tbody></table>' 
+                    : `<p style="text-align:center; margin-top:20px; color:var(--text-muted);">No Pod found in namespace ${ns}.</p>`;
+
+
             } catch (err) { 
                 showError(err.message); 
             }
@@ -423,7 +427,9 @@
                         </tr>`;
                 });
                 
-                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>No Deployment found.</p>';
+                resArea.innerHTML = data.length > 0 
+                    ? html + '</tbody></table>' 
+                    : `<p style="text-align:center; margin-top:20px; color:var(--text-muted);">No Deployment found in namespace ${ns}.</p>`;
                 
             } catch (err) { 
                 showError(err.message); 
@@ -433,10 +439,49 @@
         async function loadServices() {
             currentView = 'services';
             const ns = window.currentNamespace;
-            const data = await apiCall(`/namespaces/${ns}/services`);
-            let html = `<h2>Services [${ns}]</h2><table class="data-table"><thead><tr><th>Name</th><th>Type</th><th>IP</th><th>Actions</th></tr></thead><tbody>`;
-            data.forEach(s => html += `<tr><td><b>${s.name}</b></td><td>${s.type}</td><td>${s.cluster_ip}</td><td><button onclick="deleteResource('services', '${s.name}')" class="btn-small delete-btn"><i class="fas fa-trash"></i></button></td></tr>`);
-            document.getElementById('resultArea').innerHTML = html + '</tbody></table>';
+            const resArea = document.getElementById('resultArea');
+            
+            // Spinner di caricamento iniziale
+            resArea.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+            
+            try {
+                const data = await apiCall(`/namespaces/${ns}/services`);
+                
+                let html = `
+                    <h2>Services [${ns}]</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Type</th>
+                                <th>Cluster IP</th>
+                                <th style="text-align:right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+                
+                data.forEach(s => {
+                    html += `
+                        <tr>
+                            <td><b>${s.name}</b></td>
+                            <td><span class="badge" style="background:#f1f5f9; color:#475569;">${s.type}</span></td>
+                            <td><code style="font-size:0.75rem">${s.cluster_ip || 'None'}</code></td>
+                            <td style="text-align:right">
+                                <button onclick="deleteResource('services', '${s.name}')" class="btn-small delete-btn">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>`;
+                });
+
+                // Controllo lunghezza dati per mostrare tabella o messaggio
+                resArea.innerHTML = data.length > 0 
+                    ? html + '</tbody></table>' 
+                    : `<p style="text-align:center; margin-top:20px; color:var(--text-muted);">No Service found in namespace ${ns}.</p>`;
+                    
+            } catch (err) { 
+                showError(err.message); 
+            }
         }
 
         async function loadConfigMaps() {
@@ -469,7 +514,10 @@
                         <td><button onclick="deleteResource('configmaps', '${cm.name}')" class="btn-small delete-btn"><i class="fas fa-trash"></i></button></td>
                     </tr>`;
                 });
-                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>No ConfigMap found.</p>';
+                resArea.innerHTML = data.length > 0 
+                    ? html + '</tbody></table>' 
+                    : `<p style="text-align:center; margin-top:20px; color:var(--text-muted);">No ConfigMap found in namespace ${ns}.</p>`;
+
             } catch (err) { showError(err.message); }
         }
 
@@ -505,7 +553,11 @@
                         <td><button onclick="deleteResource('secrets', '${s.name}')" class="btn-small delete-btn"><i class="fas fa-trash"></i></button></td>
                     </tr>`;
                 });
-                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>No Secret found.</p>';
+                
+                resArea.innerHTML = data.length > 0 
+                    ? html + '</tbody></table>' 
+                    : `<p style="text-align:center; margin-top:20px; color:var(--text-muted);">No Secret found in namespace ${ns}.</p>`;
+
             } catch (err) { showError(err.message); }
         }
 
@@ -618,7 +670,7 @@
                             Upload YAML file
                             <input type="file" id="fileInput" accept=".yaml,.yml" style="display:none" onchange="handleFileUpload(event)">
                         </label>
-                        <div id="fileNameDisplay" style="margin-top:10px; font-size:0.7rem; color:var(--text-muted)">Nessun file selezionato</div>
+                        <div id="fileNameDisplay" style="margin-top:10px; font-size:0.7rem; color:var(--text-muted)">No file selected</div>
                     </div>
                     <textarea id="yamlEditor" style="width:100%; height:250px; border-radius:10px; border:1px solid var(--border); padding:10px;" placeholder="apiVersion: apps/v1&#10;kind: Deployment&#10;metadata:&#10;  name: my-app&#10;spec:&#10;  replicas: 2&#10;  ..."></textarea>
                     <button onclick="executeApply()" class="btn-action" style="width:100%; margin-top:15px;">Run Apply</button>
@@ -670,7 +722,11 @@
                         </td>
                     </tr>`;
                 });
-                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>No Service Accounts found.</p>';
+                
+                resArea.innerHTML = data.length > 0 
+                    ? html + '</tbody></table>' 
+                    : `<p style="text-align:center; margin-top:20px; color:var(--text-muted);">No Service Accounts found in namespace ${ns}.</p>`;
+
             } catch (err) { showError(err.message); }
         }
 
@@ -695,7 +751,11 @@
                         </td>
                     </tr>`;
                 });
-                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>No Roles found.</p>';
+                
+                resArea.innerHTML = data.length > 0 
+                    ? html + '</tbody></table>' 
+                    : `<p style="text-align:center; margin-top:20px; color:var(--text-muted);">No Roles found in namespace ${ns}.</p>`;
+
             } catch (err) { showError(err.message); }
         }
 
@@ -722,7 +782,11 @@
                         </td>
                     </tr>`;
                 });
-                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>No Role Bindings found.</p>';
+                
+                resArea.innerHTML = data.length > 0 
+                    ? html + '</tbody></table>' 
+                    : `<p style="text-align:center; margin-top:20px; color:var(--text-muted);">No Role Bindings found in namespace ${ns}.</p>`;
+
             } catch (err) { showError(err.message); }
         }
 
@@ -755,7 +819,7 @@
                 }
             }
         }
-        function showError(msg) { document.getElementById('resultArea').innerHTML = `<div class="error-box"><b>ERRORE:</b><br>${msg}</div>`; }
+        function showError(msg) { document.getElementById('resultArea').innerHTML = `<div class="error-box"><b>ERROR:</b><br>${msg}</div>`; }
         function logout() { localStorage.clear(); window.location.href = 'index.html'; }
 
         // STILI
