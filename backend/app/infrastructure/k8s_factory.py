@@ -37,5 +37,6 @@ class K8sClientFactory:
         
         return {
             "core_v1": client.CoreV1Api(api_client),
-            "apps_v1": client.AppsV1Api(api_client)
+            "apps_v1": client.AppsV1Api(api_client),
+            "rbac_v1": client.RbacAuthorizationV1Api(api_client)
         }

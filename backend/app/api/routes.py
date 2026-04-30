@@ -117,3 +117,29 @@ async def get_cluster_nodes(
 ):
     """Restituisce i dettagli tecnici dei nodi del cluster."""
     return manager.list_nodes()
+
+# --- RBAC ENDPOINTS ---
+
+@router.get("/namespaces/{namespace}/serviceaccounts")
+async def get_sas(namespace: str, manager: CoreManager = Depends(get_current_core_manager)):
+    return manager.list_service_accounts(namespace)
+
+@router.delete("/namespaces/{namespace}/serviceaccounts/{name}")
+async def del_sa(namespace: str, name: str, manager: CoreManager = Depends(get_current_core_manager)):
+    return manager.delete_service_account(namespace, name)
+
+@router.get("/namespaces/{namespace}/roles")
+async def get_roles(namespace: str, manager: CoreManager = Depends(get_current_core_manager)):
+    return manager.list_roles(namespace)
+
+@router.delete("/namespaces/{namespace}/roles/{name}")
+async def del_role(namespace: str, name: str, manager: CoreManager = Depends(get_current_core_manager)):
+    return manager.delete_role(namespace, name)
+
+@router.get("/namespaces/{namespace}/rolebindings")
+async def get_bindings(namespace: str, manager: CoreManager = Depends(get_current_core_manager)):
+    return manager.list_role_bindings(namespace)
+
+@router.delete("/namespaces/{namespace}/rolebindings/{name}")
+async def del_binding(namespace: str, name: str, manager: CoreManager = Depends(get_current_core_manager)):
+    return manager.delete_role_binding(namespace, name)

@@ -20,6 +20,7 @@ class CoreManager:
         """
         self.core_v1 = k8s_apis["core_v1"]
         self.apps_v1 = k8s_apis["apps_v1"]
+        self.rbac_v1 = k8s_apis["rbac_v1"] 
         self.api_client = self.core_v1.api_client
 
 # --- DELETE OPERATIONS ---
@@ -412,6 +413,56 @@ class CoreManager:
             return node_list
         except Exception as e:
             self._handle_exception(e, "List Nodes")
+
+    def list_service_accounts(self, namespace: str):
+        try:
+            res = self.core_v1.list_namespaced_service_account(namespace)
+            return [{"name": sa.metadata.name, "secrets": len(sa.secrets or [])} for sa in res.items]
+        except Exception as e:
+            self._handle_exception(e, f"List ServiceAccounts in {namespace}")
+
+    def delete_service_account(self, namespace: str, name: str):
+        try:
+            self.core_v1.delete_namespaced_service_account(name, namespace)
+            return {"status": "success", "message": f"ServiceAccount {name} deleted"}
+        except Exception as e:
+            self._handle_exception(e, f"Delete ServiceAccount {name}")
+
+    # --- ROLES ---
+    def list_roles(self, namespace: str):
+        try:
+            res = self.rbac_v1.list_namespaced_role(namespace)
+            return [{"name": r.metadata.name, "rules": len(r.rules or [])} for r in res.items]
+        except Exception as e:
+            self._handle_exception(e, f"List Roles in {namespace}")
+
+    def delete_role(self, namespace: str, name: str):
+        try:
+            self.rbac_v1.delete_namespaced_role(name, namespace)
+            return {"status": "success", "message": f"Role {name} deleted"}
+        except Exception as e:
+            self._handle_exception(e, f"Delete Role {name}")
+
+    # --- ROLE BINDINGS ---
+    def list_role_bindings(self, namespace: str):
+        try:
+            res = self.rbac_v1.list_namespaced_role_binding(namespace)
+            return [
+                {
+                    "name": rb.metadata.name, 
+                    "role_ref": rb.role_ref.name,
+                    "subjects": [{"kind": s.kind, "name": s.name} for s in rb.subjects or []]
+                } for rb in res.items
+            ]
+        except Exception as e:
+            self._handle_exception(e, f"List RoleBindings in {namespace}")
+
+    def delete_role_binding(self, namespace: str, name: str):
+        try:
+            self.rbac_v1.delete_namespaced_role_binding(name, namespace)
+            return {"status": "success", "message": f"RoleBinding {name} deleted"}
+        except Exception as e:
+            self._handle_exception(e, f"Delete RoleBinding {name}")
 
     def _handle_exception(self, e: Exception, context: str):
         if not hasattr(e, 'status'):
