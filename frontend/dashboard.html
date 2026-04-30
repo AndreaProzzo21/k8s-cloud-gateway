@@ -31,9 +31,18 @@
     </nav>
 
     <div class="main-container">
-        <!-- SIDEBAR AGGIORNATA CON SCROLL INTERNO -->
         <aside class="sidebar" style="overflow-y: auto; max-height: 100%;">
-            <div class="sidebar-section">Workloads</div>
+            <div class="sidebar-section" style="text-align: center; color: #475569; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 25px 0 10px 0; border-bottom: 1px solid #f1f5f9; margin-bottom: 6px;">Cluster Admin</div>
+            <ul>
+                <li id="menu-nodes" onclick="setActive(this); loadNodes()">
+                    <i class="fas fa-server"></i> Nodes Overview
+                </li>
+                <li id="menu-events" onclick="setActive(this); loadEvents()">
+                    <i class="fas fa-bell"></i> Events Log
+                </li>
+            </ul>
+
+            <div class="sidebar-section" style="text-align: center; color: #475569; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 25px 0 10px 0; border-bottom: 1px solid #f1f5f9; margin-bottom: 6px;">Workloads</div>
             <ul>
                 <li id="menu-pods" class="active" onclick="setActive(this); loadPods()">
                     <i class="fas fa-microchip"></i> Pods List
@@ -41,9 +50,12 @@
                 <li id="menu-deps" onclick="setActive(this); loadDeployments()">
                     <i class="fas fa-layer-group"></i> Deployments
                 </li>
+                <li id="menu-upload" onclick="setActive(this); showApplyForm()">
+                    <i class="fas fa-file-import"></i> Cluster Apply
+                </li>
             </ul>
 
-            <div class="sidebar-section">Network & Config</div>
+            <div class="sidebar-section" style="text-align: center; color: #475569; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 25px 0 10px 0; border-bottom: 1px solid #f1f5f9; margin-bottom: 6px;">Network & Config</div>
             <ul>
                 <li id="menu-svcs" onclick="setActive(this); loadServices()">
                     <i class="fas fa-network-wired"></i> Services
@@ -55,38 +67,26 @@
                     <i class="fas fa-key"></i> Secrets
                 </li>
             </ul>
-
-            <div class="sidebar-section">Cluster Admin</div>
-            <ul>
-                <li id="menu-events" onclick="setActive(this); loadEvents()">
-                    <i class="fas fa-bell"></i> Events Log
-                </li>
-                <li id="menu-upload" onclick="setActive(this); showApplyForm()">
-                    <i class="fas fa-file-import"></i> Cluster Apply
-                </li>
-            </ul>
         </aside>
 
         <main class="content">
+        
             <div id="controlsContainer" class="controls">
+                
                 <div style="flex-grow: 1;">
-                    <label style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-bottom: 5px; font-weight: 600;">TARGET NAMESPACE</label>
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        <select id="nsSelect" onchange="syncNamespace(this)" style="padding: 8px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.85rem; color: var(--text-main); background: #fff;">
-                            <option value="default">Loading namespaces...</option>
-                        </select>
-                        <input type="text" id="namespaceInput" value="default" placeholder="o scrivi qui..." style="max-width: 150px;">
-                        <button onclick="addNewNamespace()" class="btn-small plus-btn" title="Crea Nuovo Namespace">
-                            <i class="fas fa-plus"></i>
-                        </button>
-                    </div>
+                    <label style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-bottom: 5px; font-weight: 600;">SELECT NAMESPACE</label>
+                    <div id="nsContextArea" style="display: flex; gap: 8px; align-items: center;"></div>
                 </div>
-                <button id="mainActionBtn" onclick="refreshCurrentView()" class="btn-action" style="margin-top: 21px;">Refresh Data</button>
+                <input type="text" id="labelFilter" placeholder="Filtra per label (es: app=web)" 
+       style="width: 200px; padding: 8px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.8rem;">
+                
+                
+                <button onclick="refreshCurrentView()" class="btn-action">Refresh</button>
             </div>
 
             <div id="resultArea">
                 <div style="text-align: center; margin-top: 100px; color: var(--text-muted);">
-                    <p>Seleziona una risorsa per iniziare il monitoraggio.</p>
+                    <p>Seleziona una risorsa per iniziare.</p>
                 </div>
             </div>
         </main>
@@ -101,18 +101,14 @@
 
         const API_BASE = "http://localhost:8000/api/v1";
         let currentView = 'pods';
+        window.currentNamespace = localStorage.getItem('last_ns') || 'default';
 
         loadNamespaceList();
-
-        function syncNamespace(sel) {
-            document.getElementById('namespaceInput').value = sel.value;
-            refreshCurrentView();
-        }
 
         function setActive(el) {
             document.querySelectorAll('.sidebar li').forEach(li => li.classList.remove('active'));
             el.classList.add('active');
-            document.getElementById('controlsContainer').style.display = 'flex';
+            document.getElementById('controlsContainer').style.display = (el.id === 'menu-nodes') ? 'none' : 'flex';
         }
 
         function refreshCurrentView() {
@@ -122,273 +118,481 @@
             else if (currentView === 'configmaps') loadConfigMaps();
             else if (currentView === 'secrets') loadSecrets();
             else if (currentView === 'events') loadEvents();
+            else if (currentView === 'nodes') loadNodes();
         }
 
         async function apiCall(endpoint, method = 'GET', isText = false, body = null) {
-            const options = {
-                method: method,
-                headers: { 'Authorization': `Bearer ${token}` }
-            };
+            const options = { method, headers: { 'Authorization': `Bearer ${token}` } };
             if (body) options.body = body;
-
             const response = await fetch(`${API_BASE}${endpoint}`, options);
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.message || errorData.detail || "Errore nella richiesta");
+                throw new Error(errorData.message || errorData.detail || "Errore API");
             }
             return isText ? await response.text() : await response.json();
         }
 
         async function loadNamespaceList() {
-            const sel = document.getElementById('nsSelect');
+            const container = document.getElementById('nsContextArea');
             try {
-                const namespaces = await apiCall('/namespaces');
-                sel.innerHTML = '';
-                namespaces.forEach(ns => {
-                    const opt = document.createElement('option');
-                    opt.value = ns.name;
-                    opt.innerText = `${ns.name} (${ns.status})`;
-                    if(ns.name === 'default') opt.selected = true;
-                    sel.appendChild(opt);
+                // Tentiamo di chiamare l'API dei namespace
+                const response = await apiCall('/namespaces');
+                
+                if (response && response.can_list) {
+                    // CASO ADMIN: Creiamo la Select
+                    let html = `<select id="nsSelect" onchange="updateNamespaceContext(this.value)" style="min-width: 200px; padding: 8px; border-radius: 8px; border: 1px solid var(--border);">`;
+                    response.items.forEach(ns => {
+                        const selected = ns.name === window.currentNamespace ? 'selected' : '';
+                        html += `<option value="${ns.name}" ${selected}>${ns.name}</option>`;
+                    });
+                    html += `</select><button onclick="addNewNamespace()" class="btn-small plus-btn"><i class="fas fa-plus"></i></button>`;
+                    container.innerHTML = html;
+                } else {
+                    // Se l'API risponde ma dice che non può listare
+                    showManualInput();
+                }
+            } catch (err) {
+                // CASO RESTRICTED (403): Se l'API fallisce del tutto, mostriamo l'input manuale
+                console.warn("Accesso alla lista namespace negato. Passo a modalità manuale.");
+                showManualInput();
+            }
+            
+            // In ogni caso, proviamo a caricare la vista corrente
+            refreshCurrentView();
+        }
+
+        // Funzione helper per disegnare l'input manuale
+        function showManualInput() {
+            const container = document.getElementById('nsContextArea');
+            container.innerHTML = `
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <input type="text" id="manualNS" value="${window.currentNamespace}" 
+                        placeholder="Es: web" 
+                        style="width: 180px; padding: 8px; border-radius: 8px; border: 1px solid var(--border);">
+                    <button onclick="updateNamespaceContext(document.getElementById('manualNS').value)" 
+                            class="btn-small" style="background:var(--accent); color:white;">
+                        Vai
+                    </button>
+                    <small style="color:var(--text-muted); font-size:0.65rem;">Limitato</small>
+                </div>
+            `;
+        }
+
+        function updateNamespaceContext(val) {
+            window.currentNamespace = val;
+            localStorage.setItem('last_ns', val);
+            refreshCurrentView();
+        }
+
+        async function loadNodes() {
+            currentView = 'nodes';
+            const resArea = document.getElementById('resultArea');
+            
+            document.getElementById('controlsContainer').style.display = 'none';
+            resArea.innerHTML = '<div style="text-align:center; padding:40px;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
+            try {
+                const data = await apiCall('/cluster/nodes');
+                
+                let html = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h2 style="margin:0;">Cluster Nodes Overview</h2>
+                        <small style="color:var(--text-muted)">${data.length} Total Nodes</small>
+                    </div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Node Name & OS</th>
+                                <th>Status</th>
+                                <th>Role & K8s</th>
+                                <th>CPU (Alloc/Total)</th>
+                                <th>RAM (Alloc/Total)</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+                
+                data.forEach(n => {
+                    const isReady = n.status === 'Ready';
+                    const sClass = isReady ? 'status-running' : 'status-pending';
+                    
+                    const memTotGB = (parseInt(n.memory) / 1024 / 1024).toFixed(1);
+                    const memAllocGB = (parseInt(n.mem_allocatable) / 1024 / 1024).toFixed(1);
+                    
+                    const cpuUsagePct = ((parseInt(n.cpu_allocatable) / parseInt(n.cpu)) * 100).toFixed(0);
+                    const memUsagePct = ((parseFloat(memAllocGB) / parseFloat(memTotGB)) * 100).toFixed(0);
+
+                    html += `
+                        <tr>
+                            <td>
+                                <b style="color:var(--accent);">${n.name}</b><br>
+                                <span style="font-size:0.75rem; color:#64748b;">${n.os}</span>
+                            </td>
+                            <td>
+                                <span class="badge ${sClass}">${n.status}</span>
+                            </td>
+                            <td>
+                                <span style="font-size:0.85rem; font-weight:600;">${n.role}</span><br>
+                                <code style="font-size:0.75rem;">${n.version}</code>
+                            </td>
+                            <td>
+                                <div style="width:130px;">
+                                    <div style="display:flex; justify-content:space-between; font-size:0.7rem; margin-bottom:3px;">
+                                        <span>${n.cpu_allocatable}/${n.cpu} Cores</span>
+                                        <span>${cpuUsagePct}%</span>
+                                    </div>
+                                    <div style="width:100%; height:5px; background:#e2e8f0; border-radius:5px; overflow:hidden;">
+                                        <div style="width:${cpuUsagePct}%; height:100%; background:var(--accent);"></div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <div style="width:130px;">
+                                    <div style="display:flex; justify-content:space-between; font-size:0.7rem; margin-bottom:3px;">
+                                        <span>${memAllocGB}/${memTotGB} GB</span>
+                                        <span>${memUsagePct}%</span>
+                                    </div>
+                                    <div style="width:100%; height:5px; background:#e2e8f0; border-radius:5px; overflow:hidden;">
+                                        <div style="width:${memUsagePct}%; height:100%; background:#10b981;"></div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>`;
                 });
-            } catch (err) {
-                sel.innerHTML = '<option value="default">No Permissions to List</option>';
+                
+                resArea.innerHTML = html + '</tbody></table>';
+                
+            } catch (err) { 
+                showError(err.message); 
             }
         }
 
-        async function addNewNamespace() {
-            const name = prompt("Inserisci il nome del nuovo namespace:");
-            if (!name) return;
-            try {
-                const response = await apiCall(`/namespaces/${name}`, 'POST');
-                alert(response.message);
-                loadNamespaceList();
-                document.getElementById('namespaceInput').value = name;
-                refreshCurrentView();
-            } catch (err) {
-                alert("Errore (RBAC?): " + err.message);
+        // Configurazione globale label di sistema
+        const systemLabels = ['pod-template-hash', 'controller-revision-hash', 'statefulset.kubernetes.io/pod-name'];
+
+        /**
+         * Funzione Helper per renderizzare le label in modo compatto e pulito
+         */
+        function renderLabels(labelsObj) {
+            if (!labelsObj || Object.keys(labelsObj).length === 0) {
+                return '<span style="color:var(--text-muted)">-</span>';
             }
+
+            const labelsHtml = Object.entries(labelsObj)
+                .filter(([key]) => !systemLabels.includes(key)) // Filtro hash di sistema
+                .map(([k, v]) => `<span class="label-badge" title="${k}=${v}">${k}=${v}</span>`)
+                .join('');
+
+            return `<div class="labels-column">${labelsHtml || '<span style="color:var(--text-muted)">-</span>'}</div>`;
         }
 
+        /**
+         * Caricamento PODS con supporto Label Selector
+         */
         async function loadPods() {
             currentView = 'pods';
-            const ns = document.getElementById('namespaceInput').value;
+            const ns = window.currentNamespace;
             const resArea = document.getElementById('resultArea');
-            resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+            
+            // Recupero filtro dall'input globale
+            const labelSelector = document.getElementById('labelFilter')?.value || '';
+            let url = `/namespaces/${ns}/pods`;
+            if (labelSelector) url += `?label_selector=${encodeURIComponent(labelSelector)}`;
+
+            resArea.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
             try {
-                const data = await apiCall(`/namespaces/${ns}/pods`);
-                let html = `<h2>Pods in [${ns}]</h2><table class="data-table">
-                            <thead><tr><th>Name</th><th>Status</th><th>Pod IP</th><th>Actions</th></tr></thead><tbody>`;
-                if (data.length === 0) {
-                    resArea.innerHTML = "<p>Nessun Pod trovato.</p>"; return;
-                }
+                const data = await apiCall(url);
+                let html = `
+                    <h2>Pods [${ns}]</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Labels</th>
+                                <th>Status</th>
+                                <th>IP</th>
+                                <th style="text-align:right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+                
                 data.forEach(p => {
                     const sClass = p.status.toLowerCase() === 'running' ? 'status-running' : 'status-pending';
-                    html += `<tr>
-                        <td><b>${p.name}</b></td>
-                        <td><span class="badge ${sClass}">${p.status}</span></td>
-                        <td><code>${p.pod_ip || 'N/A'}</code></td>
-                        <td>
-                            <button onclick="viewLogs('${p.name}')" class="btn-small table-btn" title="Logs"><i class="fas fa-terminal"></i></button>
-                            <button onclick="downloadLogs('${p.name}')" class="btn-small table-btn" title="Download"><i class="fas fa-file-download"></i></button>
-                        </td>
-                    </tr>`;
+                    
+                    html += `
+                        <tr>
+                            <td><b>${p.name}</b></td>
+                            <td>${renderLabels(p.labels)}</td>
+                            <td><span class="badge ${sClass}">${p.status}</span></td>
+                            <td><code style="font-size:0.75rem">${p.pod_ip || 'N/A'}</code></td>
+                            <td style="text-align:right; white-space: nowrap;">
+                                <button onclick="viewLogs('${p.name}')" class="btn-small table-btn" title="View Logs"><i class="fas fa-terminal"></i></button>
+                                <button onclick="downloadLogs('${p.name}')" class="btn-small table-btn" title="Download Logs"><i class="fas fa-file-download"></i></button>
+                                <button onclick="deleteResource('pods', '${p.name}')" class="btn-small delete-btn" title="Delete Pod"><i class="fas fa-trash"></i></button>
+                            </td>
+                        </tr>`;
                 });
-                resArea.innerHTML = html + '</tbody></table><div id="logConsoleArea"></div>';
-            } catch (err) { showError(err.message); }
+
+                resArea.innerHTML = data.length > 0 ? html + '</tbody></table><div id="logConsoleArea"></div>' : '<p>Nessun Pod trovato.</p>';
+                
+            } catch (err) { 
+                showError(err.message); 
+            }
         }
 
-        async function viewLogs(podName) {
-            const ns = document.getElementById('namespaceInput').value;
-            const consoleArea = document.getElementById('logConsoleArea');
-            consoleArea.innerHTML = '<div style="margin-top:20px; text-align:center"><i class="fas fa-circle-notch fa-spin"></i> Fetching logs...</div>';
-            try {
-                const logs = await apiCall(`/namespaces/${ns}/pods/${podName}/logs?tail=100`, 'GET', true);
-                consoleArea.innerHTML = `
-                    <div style="margin-top:20px; background:#fcfdfe; border-radius:12px; border:1px solid var(--border); box-shadow: var(--shadow)">
-                        <div style="padding:12px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background: #fff; border-radius: 12px 12px 0 0">
-                            <span style="font-size:0.75rem; font-weight:700; color:var(--accent)">LOGS: ${podName} (Tail 100)</span>
-                            <button onclick="this.parentElement.parentElement.remove()" style="background:none; border:none; color:var(--text-muted); cursor:pointer"><i class="fas fa-times"></i></button>
-                        </div>
-                        <pre style="margin:0; padding:15px; color:var(--text-main); font-family:'JetBrains Mono',monospace; font-size:0.8rem; overflow-x:auto; max-height:400px"><code>${logs || 'Nessun log disponibile.'}</code></pre>
-                    </div>`;
-                consoleArea.scrollIntoView({ behavior: 'smooth' });
-            } catch (err) { alert("Errore: " + err.message); }
-        }
-
-        async function downloadLogs(podName) {
-            const ns = document.getElementById('namespaceInput').value;
-            try {
-                const logs = await apiCall(`/namespaces/${ns}/pods/${podName}/logs`, 'GET', true);
-                const blob = new Blob([logs], { type: 'text/plain' });
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url; a.download = `${podName}_logs.txt`;
-                document.body.appendChild(a); a.click(); a.remove();
-            } catch (err) { alert(err.message); }
-        }
-
+        /**
+         * Caricamento DEPLOYMENTS con supporto Label Selector
+         */
         async function loadDeployments() {
             currentView = 'deployments';
-            const ns = document.getElementById('namespaceInput').value;
+            const ns = window.currentNamespace;
             const resArea = document.getElementById('resultArea');
-            resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+            
+            const labelSelector = document.getElementById('labelFilter')?.value || '';
+            let url = `/namespaces/${ns}/deployments`;
+            if (labelSelector) url += `?label_selector=${encodeURIComponent(labelSelector)}`;
+
+            resArea.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
             try {
-                const data = await apiCall(`/namespaces/${ns}/deployments`);
-                let html = `<h2>Deployments in [${ns}]</h2><table class="data-table">
-                            <thead><tr><th>Name</th><th>Replicas</th><th>Status</th><th>Actions</th></tr></thead><tbody>`;
+                const data = await apiCall(url);
+                let html = `
+                    <h2>Deployments [${ns}]</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Labels</th>
+                                <th>Replicas</th>
+                                <th>Status</th>
+                                <th style="text-align:right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+
                 data.forEach(d => {
-                    html += `<tr>
-                        <td><b>${d.name}</b></td>
-                        <td>${d.replicas_ready}/${d.replicas_desired}</td>
-                        <td><span class="badge ${d.status === 'Ready' ? 'status-running' : 'status-pending'}">${d.status}</span></td>
-                        <td>
-                            <button onclick="scaleDeploy('${d.name}', ${d.replicas_desired})" class="btn-small scale-btn">Scale</button>
-                            <button onclick="restartDeploy('${d.name}')" class="btn-small restart-btn">Restart</button>
-                            <button onclick="deleteDeploy('${d.name}')" class="btn-small delete-btn">Delete</button>
-                        </td>
-                    </tr>`;
+                    html += `
+                        <tr>
+                            <td><b>${d.name}</b></td>
+                            <td>${renderLabels(d.labels)}</td>
+                            <td><b>${d.replicas_ready}</b>/${d.replicas_desired}</td>
+                            <td><span class="badge status-running">${d.status}</span></td>
+                            <td style="text-align:right; white-space: nowrap;">
+                                <button onclick="scaleDeploy('${d.name}', ${d.replicas_desired})" class="btn-small scale-btn" title="Scale">Scale</button>
+                                <button onclick="restartDeploy('${d.name}')" class="btn-small restart-btn" title="Restart Rollout"><i class="fas fa-sync"></i></button>
+                                <button onclick="deleteResource('deployments', '${d.name}')" class="btn-small delete-btn" title="Delete Deployment"><i class="fas fa-trash"></i></button>
+                            </td>
+                        </tr>`;
                 });
+                
                 resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessun Deployment trovato.</p>';
-            } catch (err) { showError(err.message); }
-        }
-
-        async function scaleDeploy(name, currentReplicas) {
-            const ns = document.getElementById('namespaceInput').value;
-            const newReplicas = prompt(`Scale ${name} a:`, currentReplicas);
-            if (newReplicas !== null) {
-                try {
-                    await apiCall(`/namespaces/${ns}/deployments/${name}/scale?replicas=${newReplicas}`, 'PATCH');
-                    loadDeployments();
-                } catch (err) { alert(err.message); }
-            }
-        }
-
-        async function restartDeploy(name) {
-            const ns = document.getElementById('namespaceInput').value;
-            if (confirm(`Riavviare ${name}?`)) {
-                try {
-                    await apiCall(`/namespaces/${ns}/deployments/${name}/restart`, 'POST');
-                    loadDeployments();
-                } catch (err) { alert(err.message); }
-            }
-        }
-
-        async function deleteDeploy(name) {
-            const ns = document.getElementById('namespaceInput').value;
-            if (confirm(`Eliminare definitivamente ${name}?`)) {
-                try {
-                    await apiCall(`/namespaces/${ns}/deployments/${name}`, 'DELETE');
-                    loadDeployments();
-                } catch (err) { alert(err.message); }
+                
+            } catch (err) { 
+                showError(err.message); 
             }
         }
 
         async function loadServices() {
             currentView = 'services';
-            const ns = document.getElementById('namespaceInput').value;
-            const resArea = document.getElementById('resultArea');
-            resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
-            try {
-                const data = await apiCall(`/namespaces/${ns}/services`);
-                let html = `<h2>Services in [${ns}]</h2><table class="data-table">
-                            <thead><tr><th>Name</th><th>Type</th><th>Cluster IP</th></tr></thead><tbody>`;
-                data.forEach(s => html += `<tr><td><b>${s.name}</b></td><td>${s.type}</td><td><code>${s.cluster_ip}</code></td></tr>`);
-                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessun Service trovato.</p>';
-            } catch (err) { showError(err.message); }
+            const ns = window.currentNamespace;
+            const data = await apiCall(`/namespaces/${ns}/services`);
+            let html = `<h2>Services [${ns}]</h2><table class="data-table"><thead><tr><th>Name</th><th>Type</th><th>IP</th><th>Actions</th></tr></thead><tbody>`;
+            data.forEach(s => html += `<tr><td><b>${s.name}</b></td><td>${s.type}</td><td>${s.cluster_ip}</td><td><button onclick="deleteResource('services', '${s.name}')" class="btn-small delete-btn"><i class="fas fa-trash"></i></button></td></tr>`);
+            document.getElementById('resultArea').innerHTML = html + '</tbody></table>';
         }
 
         async function loadConfigMaps() {
             currentView = 'configmaps';
-            const ns = document.getElementById('namespaceInput').value;
+            const ns = window.currentNamespace;
             const resArea = document.getElementById('resultArea');
             resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
             try {
                 const data = await apiCall(`/namespaces/${ns}/configmaps`);
-                let html = `<h2>ConfigMaps in [${ns}]</h2><table class="data-table">
-                            <thead><tr><th>Name</th><th>Keys</th></tr></thead><tbody>`;
-                data.forEach(cm => html += `<tr><td><b>${cm.name}</b></td><td><code style="font-size:0.75rem">${cm.keys.join(', ') || 'none'}</code></td></tr>`);
+                let html = `<h2>ConfigMaps [${ns}]</h2>
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Data Keys</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>`;
+                
+                data.forEach(cm => {
+                    // Creiamo dei piccoli badge grigi per ogni chiave trovata
+                    const keysHtml = cm.keys.length > 0 
+                        ? cm.keys.map(k => `<code style="background:#f1f5f9; padding:2px 6px; border-radius:4px; margin-right:4px; font-size:0.75rem;">${k}</code>`).join('')
+                        : '<span style="color:var(--text-muted); font-size:0.8rem;">No data</span>';
+
+                    html += `<tr>
+                        <td><b>${cm.name}</b></td>
+                        <td>${keysHtml}</td>
+                        <td><button onclick="deleteResource('configmaps', '${cm.name}')" class="btn-small delete-btn"><i class="fas fa-trash"></i></button></td>
+                    </tr>`;
+                });
                 resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessuna ConfigMap trovata.</p>';
             } catch (err) { showError(err.message); }
         }
 
         async function loadSecrets() {
             currentView = 'secrets';
-            const ns = document.getElementById('namespaceInput').value;
+            const ns = window.currentNamespace;
             const resArea = document.getElementById('resultArea');
             resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
             try {
                 const data = await apiCall(`/namespaces/${ns}/secrets`);
-                let html = `<h2>Secrets in [${ns}]</h2><table class="data-table">
-                            <thead><tr><th>Name</th><th>Type</th><th>Keys</th></tr></thead><tbody>`;
-                data.forEach(s => html += `<tr><td><b>${s.name}</b></td><td><small>${s.type}</small></td><td><code style="font-size:0.75rem">${s.keys.join(', ') || 'none'}</code></td></tr>`);
+                let html = `<h2>Secrets [${ns}]</h2>
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Type</th>
+                                        <th>Data Keys</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>`;
+                
+                data.forEach(s => {
+                    // Per i Secret usiamo uno stile leggermente diverso per le chiavi (lucchetto)
+                    const keysHtml = s.keys.length > 0 
+                        ? s.keys.map(k => `<span style="display:inline-block; border:1px solid #e2e8f0; padding:2px 6px; border-radius:4px; margin:2px; font-size:0.75rem;"><i class="fas fa-lock" style="font-size:0.6rem; margin-right:4px; color:#94a3b8;"></i>${k}</span>`).join('')
+                        : '<span style="color:var(--text-muted); font-size:0.8rem;">Empty</span>';
+
+                    html += `<tr>
+                        <td><b>${s.name}</b></td>
+                        <td><small>${s.type}</small></td>
+                        <td>${keysHtml}</td>
+                        <td><button onclick="deleteResource('secrets', '${s.name}')" class="btn-small delete-btn"><i class="fas fa-trash"></i></button></td>
+                    </tr>`;
+                });
                 resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessun Secret trovato.</p>';
             } catch (err) { showError(err.message); }
         }
 
         async function loadEvents() {
             currentView = 'events';
-            const ns = document.getElementById('namespaceInput').value;
+            const ns = window.currentNamespace;
             const resArea = document.getElementById('resultArea');
-            resArea.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+            resArea.innerHTML = '<div style="text-align:center; padding:40px;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
             try {
                 const data = await apiCall(`/namespaces/${ns}/events`);
-                let html = `<h2>Cluster Events in [${ns}]</h2><table class="data-table">
-                            <thead><tr><th>Time</th><th>Reason</th><th>Object</th><th>Message</th></tr></thead><tbody>`;
-                data.forEach(e => {
-                    const typeClass = e.type === 'Warning' ? 'color: var(--danger)' : 'color: var(--success)';
-                    html += `<tr><td><small>${e.time}</small></td><td><b style="${typeClass}">${e.reason}</b></td><td><small>${e.object}</small></td><td>${e.message}</td></tr>`;
-                });
-                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessun evento recente.</p>';
-            } catch (err) { showError(err.message); }
+                
+                let html = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h2 style="margin:0;">Events Log [${ns}]</h2>
+                        <small style="color:var(--text-muted)">Ultimi ${data.length} eventi</small>
+                    </div>
+                    
+                    <div style="max-height: 500px; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; background: #fff;">
+                        <table class="data-table" style="margin:0; border:none;">
+                            <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 1;">
+                                <tr>
+                                    <th style="width: 180px;">Time</th>
+                                    <th style="width: 130px;">Reason</th>
+                                    <th>Object & Message</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+
+                if (!data || data.length === 0) {
+                    html += `<tr><td colspan="3" style="text-align:center; padding:30px; color:var(--text-muted);">Nessun evento recente.</td></tr>`;
+                } else {
+                    data.forEach(e => {
+                        // Utilizziamo l'orario diretto senza trasformazioni pericolose
+                        const displayTime = e.time || "N/A";
+
+                        const isWarning = e.reason.toLowerCase().includes('fail') || 
+                                        e.reason.toLowerCase().includes('kill') || 
+                                        e.reason.toLowerCase().includes('backoff') ||
+                                        e.reason.toLowerCase().includes('unhealthy');
+                        
+                        const rowStyle = isWarning ? 'background-color: #fff1f2;' : '';
+                        const reasonColor = isWarning ? '#e11d48' : '#475569';
+
+                        html += `
+                            <tr style="${rowStyle}">
+                                <td>
+                                    <small style="font-family:monospace; color:#64748b; font-size:0.7rem;">${displayTime}</small>
+                                </td>
+                                <td>
+                                    <b style="color:${reasonColor}; font-size:0.8rem;">${e.reason}</b>
+                                </td>
+                                <td>
+                                    <div style="font-size:0.85rem; line-height:1.4;">
+                                        <span style="color:var(--accent); font-weight:600;">${e.object || 'Unknown'}</span><br>
+                                        <span style="color:#334155;">${e.message}</span>
+                                    </div>
+                                </td>
+                            </tr>`;
+                    });
+                }
+
+                resArea.innerHTML = html + '</tbody></table></div>';
+            } catch (err) { 
+                showError(err.message); 
+            }
+        }
+        // --- ACTIONS ---
+        async function restartDeploy(name) {
+            if(!confirm(`Riavviare il deployment ${name}?`)) return;
+            try {
+                await apiCall(`/namespaces/${window.currentNamespace}/deployments/${name}/restart`, 'POST');
+                loadDeployments();
+            } catch (err) { alert(err.message); }
         }
 
+        async function deleteResource(type, name) {
+            if(!confirm(`Eliminare ${name}?`)) return;
+            try {
+                await apiCall(`/namespaces/${window.currentNamespace}/${type}/${name}`, 'DELETE');
+                refreshCurrentView();
+            } catch (err) { alert(err.message); }
+        }
+
+        async function scaleDeploy(name, current) {
+            const n = prompt("Repliche:", current);
+            if (n === null) return;
+            try {
+                await apiCall(`/namespaces/${window.currentNamespace}/deployments/${name}/scale?replicas=${n}`, 'PATCH');
+                loadDeployments();
+            } catch (err) { alert(err.message); }
+        }
+
+        async function viewLogs(name) {
+            const logs = await apiCall(`/namespaces/${window.currentNamespace}/pods/${name}/logs?tail=100`, 'GET', true);
+            document.getElementById('logConsoleArea').innerHTML = `<div style="background:#1e293b; color:#fff; padding:15px; border-radius:12px; margin-top:20px; font-family:monospace; white-space:pre-wrap;">${logs}</div>`;
+        }
+
+        async function downloadLogs(name) {
+            const logs = await apiCall(`/namespaces/${window.currentNamespace}/pods/${name}/logs`, 'GET', true);
+            const blob = new Blob([logs], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `${name}_logs.txt`;
+            document.body.appendChild(a); a.click(); a.remove();
+        }
+
+        // --- APPLY ---
         function showApplyForm() {
             currentView = 'upload';
-            const resArea = document.getElementById('resultArea');
-            resArea.innerHTML = `
+            document.getElementById('resultArea').innerHTML = `
                 <div class="deploy-container">
                     <h2><i class="fas fa-magic"></i> Cluster Apply</h2>
-                    <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom: 20px;">Universal Apply: Supporta Manifest Multi-Risorsa (Deployment, Service, ConfigMap ecc.) applicati da soli o insieme separati da ---</p>
-                    <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom: 20px;">Quick Deploy: Supporta soltanto Manifest Deployment univoco</p>
-                    
-                    <div style="display:flex; gap:10px; margin-bottom:20px;">
-                        <button id="btnUniversal" onclick="setApplyMode('universal')" class="btn-small" style="flex:1; background:var(--accent-soft); border-color:var(--accent); color:var(--accent)">
-                            <i class="fas fa-layer-group"></i> Universal Apply
-                        </button>
-                        <button id="btnQuick" onclick="setApplyMode('quick')" class="btn-small" style="flex:1;">
-                            <i class="fas fa-bolt"></i> Quick Deploy
-                        </button>
-                    </div>
-
-                    <div class="upload-zone">
-                        <label>
-                            <i class="fas fa-cloud-upload-alt"></i> Seleziona file YAML
+                    <div class="upload-zone" style="border: 2px dashed var(--border); padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px;">
+                        <label style="cursor: pointer; display: block;">
+                            <i class="fas fa-cloud-upload-alt fa-2x" style="color: var(--accent)"></i><br>
+                            Upload YAML file
                             <input type="file" id="fileInput" accept=".yaml,.yml" style="display:none" onchange="handleFileUpload(event)">
                         </label>
                         <div id="fileNameDisplay" style="margin-top:10px; font-size:0.7rem; color:var(--text-muted)">Nessun file selezionato</div>
                     </div>
-                    <textarea id="yamlEditor" placeholder="apiVersion: apps/v1\nkind: Deployment..."></textarea>
-                    <button id="execApplyBtn" onclick="executeApply()" class="btn-action" style="width:100%">Esegui Apply Universale</button>
+                    <textarea id="yamlEditor" style="width:100%; height:250px; border-radius:10px; border:1px solid var(--border); padding:10px;" placeholder="apiVersion: apps/v1&#10;kind: Deployment&#10;metadata:&#10;  name: my-app&#10;spec:&#10;  replicas: 2&#10;  ..."></textarea>
+                    <button onclick="executeApply()" class="btn-action" style="width:100%; margin-top:15px;">Run Apply</button>
+                    <div id="applyReport" style="margin-top:20px;"></div>
                 </div>`;
-            window.applyMode = 'universal';
-        }
-
-        function setApplyMode(mode) {
-            window.applyMode = mode;
-            const btnU = document.getElementById('btnUniversal');
-            const btnQ = document.getElementById('btnQuick');
-            const exec = document.getElementById('execApplyBtn');
-
-            if(mode === 'universal') {
-                btnU.style.background = 'var(--accent-soft)'; btnU.style.borderColor = 'var(--accent)'; btnU.style.color = 'var(--accent)';
-                btnQ.style.background = '#fff'; btnQ.style.borderColor = 'var(--border)'; btnQ.style.color = 'var(--text-muted)';
-                exec.innerText = 'Esegui Apply Universale';
-            } else {
-                btnQ.style.background = 'var(--accent-soft)'; btnQ.style.borderColor = 'var(--accent)'; btnQ.style.color = 'var(--accent)';
-                btnU.style.background = '#fff'; btnU.style.borderColor = 'var(--border)'; btnU.style.color = 'var(--text-muted)';
-                exec.innerText = 'Esegui Quick Deploy';
-            }
         }
 
         function handleFileUpload(event) {
@@ -401,56 +605,37 @@
         }
 
         async function executeApply() {
-            const ns = document.getElementById('namespaceInput').value;
             const yamlContent = document.getElementById('yamlEditor').value;
-            if(!yamlContent.trim()) { alert("YAML vuoto!"); return; }
-
-            const endpoint = window.applyMode === 'universal' ? `/namespaces/${ns}/apply` : `/namespaces/${ns}/deployments/upload`;
-            const formData = new FormData();
-            formData.append('file', new Blob([yamlContent], { type: 'text/yaml' }), 'resource.yaml');
-
+            if(!yamlContent.trim()) return;
+            const reportDiv = document.getElementById('applyReport');
+            reportDiv.innerHTML = "Processing...";
             try {
-                const response = await apiCall(endpoint, 'POST', false, formData);
-                alert("Operazione completata con successo!");
-                if(window.applyMode === 'quick') loadDeployments();
-            } catch (err) { alert("Errore: " + err.message); }
+                const formData = new FormData();
+                formData.append('file', new Blob([yamlContent], { type: 'text/yaml' }), 'resource.yaml');
+                const res = await apiCall(`/namespaces/${window.currentNamespace}/apply`, 'POST', false, formData);
+                reportDiv.innerHTML = `<div style="background:var(--accent-soft); padding:15px; border-radius:10px;"><b>Success!</b><ul>${res.details.map(d => `<li>${d}</li>`).join('')}</ul></div>`;
+            } catch (err) { reportDiv.innerHTML = `<div style="color:var(--danger)">${err.message}</div>`; }
         }
 
-        function showError(msg) {
-            document.getElementById('resultArea').innerHTML = `<div class="error-box"><i class="fas fa-exclamation-triangle"></i> ACCESS DENIED: ${msg}</div>`;
-        }
-
+        function showError(msg) { document.getElementById('resultArea').innerHTML = `<div class="error-box"><b>ERRORE:</b><br>${msg}</div>`; }
         function logout() { localStorage.clear(); window.location.href = 'index.html'; }
 
-        // --- STYLES ---
+        // STILI
         const style = document.createElement('style');
         style.innerHTML = `
-            /* NAVBAR E BADGE */
             .nav-right-container { display: flex; align-items: center; gap: 15px; }
             .status-group { display: flex; gap: 10px; }
-            .info-badge { background: #f8fafc; border: 1px solid var(--border); padding: 4px 12px; border-radius: 8px; display: flex; flex-direction: column; min-width: 80px; }
-            .info-badge .label { font-size: 0.55rem; font-weight: 800; color: var(--text-muted); line-height: 1; margin-bottom: 2px; }
-            .info-badge .value { font-size: 0.8rem; font-weight: 700; color: var(--accent); line-height: 1; }
+            .info-badge { background: #f8fafc; border: 1px solid var(--border); padding: 6px 12px; border-radius: 10px; display: flex; flex-direction: column; min-width: 90px; }
+            .info-badge .label { font-size: 0.55rem; font-weight: 800; color: var(--text-muted); }
+            .info-badge .value { font-size: 0.85rem; font-weight: 700; color: var(--accent); }
             .nav-divider { width: 1px; height: 24px; background: var(--border); }
-            
-            /* SIDEBAR SECTION HEADERS */
-            .sidebar-section { padding: 20px 24px 8px; font-size: 0.7rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-            
-            /* BUTTONS */
-            .plus-btn { height: 38px; width: 40px; color: var(--accent) !important; background: #fff; border: 1px solid var(--border); }
-            .table-btn { color: var(--text-muted); background: #fff; border: 1px solid var(--border); }
-            .table-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
-            .scale-btn { background: #eff6ff; color: #3b82f6; border-color: #dbeafe; padding: 6px 12px; }
-            .restart-btn { background: #fffbeb; color: #d97706; border-color: #fef3c7; padding: 6px 12px; }
-            .delete-btn { background: #fef2f2; color: #dc2626; border-color: #fee2e2; padding: 6px 12px; }
-            
-            /* DEPLOY ZONE */
-            .upload-zone { border: 2px dashed var(--border); padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 15px; }
-            .upload-zone label { cursor: pointer; color: var(--accent); font-weight: 600; }
-
-            /* SCROLLBAR SIDEBAR - Per renderla invisibile ma funzionale */
-            .sidebar::-webkit-scrollbar { width: 4px; }
-            .sidebar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+            .btn-small { border-radius: 8px; padding: 6px 10px; font-size: 0.75rem; font-weight: 600; border: 1px solid var(--border); cursor: pointer; }
+            .scale-btn { background: #eff6ff; color: #3b82f6; }
+            .restart-btn { background: #fffbeb; color: #d97706; border: 1px solid #fcd34d; }
+            .delete-btn { background: #fef2f2; color: #dc2626; border: 1px solid #fee2e2; }
+            .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }
+            .status-running { background: #ecfdf5; color: #059669; }
+            .status-pending { background: #fef3c7; color: #b45309; }
         `;
         document.head.appendChild(style);
     </script>

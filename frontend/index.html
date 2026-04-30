@@ -4,25 +4,65 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>K8s Gateway - Accesso</title>
-    <!-- Font Inter per coerenza col CSS -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* Override specifici per compattare la login senza toccare il CSS globale */
+        .login-card {
+            padding: 1.5rem !important; /* Ridotto da 2rem o superiore */
+            max-width: 360px !important;
+            margin: auto;
+        }
+        .auth-header {
+            margin-bottom: 1.5rem !important;
+            text-align: center;
+        }
+        .auth-header svg {
+            margin-bottom: 0.2rem !important;
+            width: 32px; height: 32px; /* Leggermente più piccolo */
+        }
+        .auth-header h1 {
+            font-size: 1.25rem !important;
+            margin-bottom: 0.1rem !important;
+        }
+        .auth-header p {
+            font-size: 0.85rem !important;
+            margin: 0;
+        }
+        .form-group {
+            margin-bottom: 0.8rem !important;
+        }
+        .form-group label {
+            font-size: 0.75rem !important;
+            margin-bottom: 0.3rem !important;
+            display: block;
+        }
+        input {
+            padding: 0.6rem !important;
+            font-size: 0.9rem !important;
+        }
+        #errorMessage {
+            color: #e11d48;
+            font-size: 0.8rem;
+            text-align: center;
+            border-radius: 6px;
+            margin-top: 0.5rem; /* Margine ridotto */
+            transition: all 0.2s ease; /* Transizione fluida */
+        }
+    </style>
 </head>
-<body class="auth-page">
+<body class="auth-page" style="display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
     <div class="login-card">
         <div class="auth-header">
-            <div>
-                <!-- Semplice cerchio blu che richiama il timone di K8s -->
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent); margin-bottom: 0.5rem;">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <line x1="12" y1="2" x2="12" y2="22"></line>
-                    <line x1="2" y1="12" x2="22" y2="12"></line>
-                    <path d="m4.93 4.93 14.14 14.14"></path>
-                    <path d="m19.07 4.93-14.14 14.14"></path>
-                </svg>
-            </div>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent);">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="2" x2="12" y2="22"></line>
+                <line x1="2" y1="12" x2="22" y2="12"></line>
+                <path d="m4.93 4.93 14.14 14.14"></path>
+                <path d="m19.07 4.93-14.14 14.14"></path>
+            </svg>
             <h1>K8s Cloud Gateway</h1>
-            <p>Multi-Cluster Management Console</p>
+            <p>Cluster Management Console</p>
         </div>
         
         <form id="loginForm">
@@ -38,7 +78,7 @@
                 <label>Gateway Credentials</label>
                 <input type="password" id="password" placeholder="••••••••" required>
             </div>
-            <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem;">
+            <button type="submit" class="btn-primary" style="width: 100%; margin-top: 0.5rem; padding: 0.7rem;">
                 Connect to Cluster
             </button>
         </form>
@@ -52,8 +92,9 @@
             const btn = e.target.querySelector('button');
             
             msgDiv.innerText = "";
+            msgDiv.style.padding = "0";
             btn.innerText = "Connecting...";
-            btn.style.opacity = "0.7";
+            btn.disabled = true;
 
             const payload = {
                 cluster_id: document.getElementById('clusterId').value,
@@ -62,7 +103,6 @@
             };
 
             try {
-                // Sostituisci con l'URL corretto del tuo backend se diverso da localhost
                 const response = await fetch('http://localhost:8000/auth/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -78,13 +118,15 @@
                     window.location.href = 'dashboard.html';
                 } else {
                     msgDiv.innerText = data.detail || "Authentication Failed";
+                    msgDiv.style.padding = "8px";
                     btn.innerText = "Connect to Cluster";
-                    btn.style.opacity = "1";
+                    btn.disabled = false;
                 }
             } catch (err) {
-                msgDiv.innerText = "Error: System Backend Unreachable";
+                msgDiv.innerText = "Error: Backend Unreachable";
+                msgDiv.style.padding = "8px";
                 btn.innerText = "Connect to Cluster";
-                btn.style.opacity = "1";
+                btn.disabled = false;
             }
         });
     </script>
