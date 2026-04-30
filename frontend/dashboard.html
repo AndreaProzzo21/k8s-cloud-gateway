@@ -31,7 +31,7 @@
     </nav>
 
     <div class="main-container">
-        <aside class="sidebar" style="overflow-y: auto; max-height: 100%;">
+        <aside class="sidebar" style="overflow-y: auto; max-height: 100%;" >
             <div class="sidebar-section" style="text-align: center; color: #475569; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 25px 0 10px 0; border-bottom: 1px solid #f1f5f9; margin-bottom: 6px;">Cluster Admin</div>
             <ul>
                 <li id="menu-nodes" onclick="setActive(this); loadNodes()">
@@ -67,6 +67,22 @@
                     <i class="fas fa-key"></i> Secrets
                 </li>
             </ul>
+
+            <!-- Sezione Access Control -->
+            <div class="sidebar-section" style="text-align: center; color: #475569; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 25px 0 10px 0; border-bottom: 1px solid #f1f5f9; margin-bottom: 6px;">
+                Access Control
+            </div>
+            <ul>
+                <li id="menu-sa" onclick="setActive(this); loadServiceAccounts()">
+                    <i class="fas fa-user-shield"></i> Service Accounts
+                </li>
+                <li id="menu-roles" onclick="setActive(this); loadRoles()">
+                    <i class="fas fa-shield-alt" style="margin-right: 2.5px;"></i> Roles
+                </li>
+                <li id="menu-bindings" onclick="setActive(this); loadRoleBindings()">
+                    <i class="fas fa-link"></i> Role Bindings
+                </li>
+            </ul>
         </aside>
 
         <main class="content">
@@ -86,7 +102,7 @@
 
             <div id="resultArea">
                 <div style="text-align: center; margin-top: 100px; color: var(--text-muted);">
-                    <p>Seleziona una risorsa per iniziare.</p>
+                    <p>Select a resource to start.</p>
                 </div>
             </div>
         </main>
@@ -106,12 +122,30 @@
         loadNamespaceList();
 
         function setActive(el) {
+            // Mantieni la logica originale per le classi active
             document.querySelectorAll('.sidebar li').forEach(li => li.classList.remove('active'));
             el.classList.add('active');
-            document.getElementById('controlsContainer').style.display = (el.id === 'menu-nodes') ? 'none' : 'flex';
+            
+            // Mantieni la logica originale per il display del container controlli
+            const controls = document.getElementById('controlsContainer');
+            controls.style.display = (el.id === 'menu-nodes') ? 'none' : 'flex';
+
+            // Aggiungiamo il controllo per il filtro label
+            const labelInput = document.getElementById('labelFilter');
+            if (labelInput) {
+                // Mostra solo se l'ID è menu-pods o menu-deps, altrimenti nascondi
+                if (el.id === 'menu-pods' || el.id === 'menu-deps') {
+                    labelInput.style.display = 'block';
+                } else {
+                    labelInput.style.display = 'none';
+                    labelInput.value = ''; // Reset del filtro quando cambi sezione
+                }
+            }
         }
 
         function refreshCurrentView() {
+            console.log("Refreshing view:", currentView); // Debug per vedere cosa sta cercando di ricaricare
+
             if (currentView === 'pods') loadPods();
             else if (currentView === 'deployments') loadDeployments();
             else if (currentView === 'services') loadServices();
@@ -119,6 +153,10 @@
             else if (currentView === 'secrets') loadSecrets();
             else if (currentView === 'events') loadEvents();
             else if (currentView === 'nodes') loadNodes();
+            // NUOVE SEZIONI ACCESS CONTROL
+            else if (currentView === 'serviceaccounts') loadServiceAccounts();
+            else if (currentView === 'roles') loadRoles();
+            else if (currentView === 'rolebindings') loadRoleBindings();
         }
 
         async function apiCall(endpoint, method = 'GET', isText = false, body = null) {
@@ -127,7 +165,7 @@
             const response = await fetch(`${API_BASE}${endpoint}`, options);
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.message || errorData.detail || "Errore API");
+                throw new Error(errorData.message || errorData.detail || "API ERROR");
             }
             return isText ? await response.text() : await response.json();
         }
@@ -167,13 +205,13 @@
             container.innerHTML = `
                 <div style="display:flex; align-items:center; gap:10px;">
                     <input type="text" id="manualNS" value="${window.currentNamespace}" 
-                        placeholder="Es: web" 
+                        placeholder="Insert namespace" 
                         style="width: 180px; padding: 8px; border-radius: 8px; border: 1px solid var(--border);">
                     <button onclick="updateNamespaceContext(document.getElementById('manualNS').value)" 
                             class="btn-small" style="background:var(--accent); color:white;">
                         Vai
                     </button>
-                    <small style="color:var(--text-muted); font-size:0.65rem;">Limitato</small>
+                    <small style="color:var(--text-muted); font-size:0.65rem;">Limited Access</small>
                 </div>
             `;
         }
@@ -333,7 +371,7 @@
                         </tr>`;
                 });
 
-                resArea.innerHTML = data.length > 0 ? html + '</tbody></table><div id="logConsoleArea"></div>' : '<p>Nessun Pod trovato.</p>';
+                resArea.innerHTML = data.length > 0 ? html + '</tbody></table><div id="logConsoleArea"></div>' : '<p>No Pods found.</p>';
                 
             } catch (err) { 
                 showError(err.message); 
@@ -385,7 +423,7 @@
                         </tr>`;
                 });
                 
-                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessun Deployment trovato.</p>';
+                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>No Deployment found.</p>';
                 
             } catch (err) { 
                 showError(err.message); 
@@ -431,7 +469,7 @@
                         <td><button onclick="deleteResource('configmaps', '${cm.name}')" class="btn-small delete-btn"><i class="fas fa-trash"></i></button></td>
                     </tr>`;
                 });
-                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessuna ConfigMap trovata.</p>';
+                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>No ConfigMap found.</p>';
             } catch (err) { showError(err.message); }
         }
 
@@ -467,7 +505,7 @@
                         <td><button onclick="deleteResource('secrets', '${s.name}')" class="btn-small delete-btn"><i class="fas fa-trash"></i></button></td>
                     </tr>`;
                 });
-                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>Nessun Secret trovato.</p>';
+                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>No Secret found.</p>';
             } catch (err) { showError(err.message); }
         }
 
@@ -483,7 +521,7 @@
                 let html = `
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                         <h2 style="margin:0;">Events Log [${ns}]</h2>
-                        <small style="color:var(--text-muted)">Ultimi ${data.length} eventi</small>
+                        <small style="color:var(--text-muted)">Last ${data.length} events</small>
                     </div>
                     
                     <div style="max-height: 500px; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; background: #fff;">
@@ -498,7 +536,7 @@
                             <tbody>`;
 
                 if (!data || data.length === 0) {
-                    html += `<tr><td colspan="3" style="text-align:center; padding:30px; color:var(--text-muted);">Nessun evento recente.</td></tr>`;
+                    html += `<tr><td colspan="3" style="text-align:center; padding:30px; color:var(--text-muted);">No recent events.</td></tr>`;
                 } else {
                     data.forEach(e => {
                         // Utilizziamo l'orario diretto senza trasformazioni pericolose
@@ -544,13 +582,6 @@
             } catch (err) { alert(err.message); }
         }
 
-        async function deleteResource(type, name) {
-            if(!confirm(`Eliminare ${name}?`)) return;
-            try {
-                await apiCall(`/namespaces/${window.currentNamespace}/${type}/${name}`, 'DELETE');
-                refreshCurrentView();
-            } catch (err) { alert(err.message); }
-        }
 
         async function scaleDeploy(name, current) {
             const n = prompt("Repliche:", current);
@@ -613,10 +644,117 @@
                 const formData = new FormData();
                 formData.append('file', new Blob([yamlContent], { type: 'text/yaml' }), 'resource.yaml');
                 const res = await apiCall(`/namespaces/${window.currentNamespace}/apply`, 'POST', false, formData);
-                reportDiv.innerHTML = `<div style="background:var(--accent-soft); padding:15px; border-radius:10px;"><b>Success!</b><ul>${res.details.map(d => `<li>${d}</li>`).join('')}</ul></div>`;
+                reportDiv.innerHTML = `<div style="background:var(--accent-soft); padding:15px; border-radius:10px;"><b>Progress...</b><ul>${res.details.map(d => `<li>${d}</li>`).join('')}</ul></div>`;
             } catch (err) { reportDiv.innerHTML = `<div style="color:var(--danger)">${err.message}</div>`; }
         }
 
+
+        /**
+         * --- SERVICE ACCOUNTS ---
+         */
+        async function loadServiceAccounts() {
+            currentView = 'serviceaccounts';
+            const ns = window.currentNamespace;
+            const resArea = document.getElementById('resultArea');
+            try {
+                const data = await apiCall(`/namespaces/${ns}/serviceaccounts`);
+                let html = `<h2>Service Accounts [${ns}]</h2><table class="data-table">
+                            <thead><tr><th>Name</th><th>Secrets</th><th style="text-align:right">Actions</th></tr></thead><tbody>`;
+                
+                data.forEach(sa => {
+                    html += `<tr>
+                        <td><b>${sa.name}</b></td>
+                        <td><span class="badge" style="background:#e0f2fe; color:#0369a1;">${sa.secrets} Secret(s)</span></td>
+                        <td style="text-align:right">
+                            <button onclick="deleteResource('serviceaccounts', '${sa.name}')" class="btn-small delete-btn"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>`;
+                });
+                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>No Service Accounts found.</p>';
+            } catch (err) { showError(err.message); }
+        }
+
+        /**
+         * --- ROLES ---
+         */
+        async function loadRoles() {
+            currentView = 'roles';
+            const ns = window.currentNamespace;
+            const resArea = document.getElementById('resultArea');
+            try {
+                const data = await apiCall(`/namespaces/${ns}/roles`);
+                let html = `<h2>Roles [${ns}]</h2><table class="data-table">
+                            <thead><tr><th>Name</th><th>Permissions</th><th style="text-align:right">Actions</th></tr></thead><tbody>`;
+                
+                data.forEach(r => {
+                    html += `<tr>
+                        <td><b>${r.name}</b></td>
+                        <td><span class="badge" style="background:#f1f5f9; color:#475569;">${r.rules} Rules</span></td>
+                        <td style="text-align:right">
+                            <button onclick="deleteResource('roles', '${r.name}')" class="btn-small delete-btn"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>`;
+                });
+                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>No Roles found.</p>';
+            } catch (err) { showError(err.message); }
+        }
+
+        /**
+         * --- ROLE BINDINGS ---
+         */
+        async function loadRoleBindings() {
+            currentView = 'rolebindings';
+            const ns = window.currentNamespace;
+            const resArea = document.getElementById('resultArea');
+            try {
+                const data = await apiCall(`/namespaces/${ns}/rolebindings`);
+                let html = `<h2>Role Bindings [${ns}]</h2><table class="data-table">
+                            <thead><tr><th>Name</th><th>Role Ref</th><th>Subjects</th><th style="text-align:right">Actions</th></tr></thead><tbody>`;
+                
+                data.forEach(rb => {
+                    const subCount = rb.subjects ? rb.subjects.length : 0;
+                    html += `<tr>
+                        <td><b>${rb.name}</b></td>
+                        <td><code style="color:var(--accent)">${rb.role_ref}</code></td>
+                        <td><span class="badge" style="background:#f0fdf4; color:#166534;">${subCount} Subject(s)</span></td>
+                        <td style="text-align:right">
+                            <button onclick="deleteResource('rolebindings', '${rb.name}')" class="btn-small delete-btn"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>`;
+                });
+                resArea.innerHTML = data.length > 0 ? html + '</tbody></table>' : '<p>No Role Bindings found.</p>';
+            } catch (err) { showError(err.message); }
+        }
+
+        async function deleteResource(type, name) {
+            if (!confirm(`Confermi l'eliminazione di ${type}: ${name}?`)) return;
+
+            const ns = window.currentNamespace;
+            const url = `/namespaces/${ns}/${type}/${name}`;
+
+            try {
+                // Chiamata corretta alla tua apiCall
+                await apiCall(url, 'DELETE'); 
+                
+                // Invece di showSuccess (che manca), usiamo un alert o log
+                console.log(`${name} successfully deleted`);
+                
+                // Se hai una funzione per i messaggi di errore, 
+                // forse vuoi definirne una simile per il successo:
+                // toastr.success(msg) o simili. Per ora usiamo:
+                alert(`${type} '${name}' successfully deleted.`);
+
+                refreshCurrentView(); 
+                
+            } catch (err) {
+                // Assicurati che showError sia definita, altrimenti usa alert(err.message)
+                if (typeof showError === 'function') {
+                    showError(`Error in deleting ${name}: ${err.message}`);
+                } else {
+                    alert(`Errore: ${err.message}`);
+                }
+            }
+        }
         function showError(msg) { document.getElementById('resultArea').innerHTML = `<div class="error-box"><b>ERRORE:</b><br>${msg}</div>`; }
         function logout() { localStorage.clear(); window.location.href = 'index.html'; }
 
