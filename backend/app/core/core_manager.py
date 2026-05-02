@@ -139,6 +139,7 @@ class CoreManager:
                     "name": p.metadata.name,
                     "status": p.status.phase,
                     "pod_ip": p.status.pod_ip,
+                    "node_name": p.spec.node_name,
                     "labels": p.metadata.labels # Utile restituirle per vederle nella UI
                 } for p in pods.items
             ]
