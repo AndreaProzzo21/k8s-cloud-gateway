@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from app.core.registry import ClusterRegistry
 
 JWT_SECRET = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
-ALGORITHM = "HS256"
+ALGORITHM = os.getenv("JWT_SECRET_ALGORITHM", "HS256")
 
 def create_access_token(cluster_id: str, profile: str, password: str):
     cluster_data = ClusterRegistry.get_cluster_data(cluster_id, profile)
