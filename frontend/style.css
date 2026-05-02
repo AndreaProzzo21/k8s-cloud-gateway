@@ -304,3 +304,24 @@ button[onclick*="deleteDeploy"]:hover { background: #ef4444; color: #fff; }
     display: block;
     line-height: 1;
 }
+
+.log-row td {
+    background: #f8fafc !important; /* Grigio chiarissimo per staccare */
+    padding: 0 !important;
+}
+.log-container {
+    background: #1e293b; 
+    color: #f1f5f9; 
+    padding: 15px; 
+    margin: 10px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+}
+.log-container pre {
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    margin: 0;
+}

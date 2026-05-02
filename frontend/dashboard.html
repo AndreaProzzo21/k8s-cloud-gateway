@@ -154,7 +154,6 @@
             else if (currentView === 'secrets') loadSecrets();
             else if (currentView === 'events') loadEvents();
             else if (currentView === 'nodes') loadNodes();
-            // NUOVE SEZIONI ACCESS CONTROL
             else if (currentView === 'serviceaccounts') loadServiceAccounts();
             else if (currentView === 'roles') loadRoles();
             else if (currentView === 'rolebindings') loadRoleBindings();
@@ -210,7 +209,7 @@
                         style="width: 180px; padding: 8px; border-radius: 8px; border: 1px solid var(--border);">
                     <button onclick="updateNamespaceContext(document.getElementById('manualNS').value)" 
                             class="btn-small" style="background:var(--accent); color:white;">
-                        Vai
+                        Select
                     </button>
                     <small style="color:var(--text-muted); font-size:0.65rem;">Limited Access</small>
                 </div>
@@ -347,6 +346,7 @@
                         <thead>
                             <tr>
                                 <th>Name</th>
+                                <th>Node</th>
                                 <th>Labels</th>
                                 <th>Status</th>
                                 <th>IP</th>
@@ -357,15 +357,18 @@
                 
                 data.forEach(p => {
                     const sClass = p.status.toLowerCase() === 'running' ? 'status-running' : 'status-pending';
-                    
+                    const nodeDisplay = p.node_name 
+                        ? `<span style="font-size:0.75rem; color:var(--accent); font-weight:600;">${p.node_name}</span>`
+                        : '<span style="color:var(--text-muted); font-size:0.75rem;">Unassigned</span>';
                     html += `
                         <tr>
                             <td><b>${p.name}</b></td>
+                            <td>${nodeDisplay}</td>
                             <td>${renderLabels(p.labels)}</td>
                             <td><span class="badge ${sClass}">${p.status}</span></td>
                             <td><code style="font-size:0.75rem">${p.pod_ip || 'N/A'}</code></td>
                             <td style="text-align:right; white-space: nowrap;">
-                                <button onclick="viewLogs('${p.name}')" class="btn-small table-btn" title="View Logs"><i class="fas fa-terminal"></i></button>
+                                <button onclick="viewLogs('${p.name}', this)" class="btn-small table-btn" title="View Logs"><i class="fas fa-terminal"></i></button>
                                 <button onclick="downloadLogs('${p.name}')" class="btn-small table-btn" title="Download Logs"><i class="fas fa-file-download"></i></button>
                                 <button onclick="deleteResource('pods', '${p.name}')" class="btn-small delete-btn" title="Delete Pod"><i class="fas fa-trash"></i></button>
                             </td>
@@ -373,7 +376,7 @@
                 });
 
                 resArea.innerHTML = data.length > 0 
-                    ? html + '</tbody></table>' 
+                    ? html + '</tbody></table><div id="logConsoleArea"></div>' // <-- AGGIUNTO IL DIV QUI
                     : `<p style="text-align:center; margin-top:20px; color:var(--text-muted);">No Pod found in namespace ${ns}.</p>`;
 
 
@@ -644,9 +647,38 @@
             } catch (err) { alert(err.message); }
         }
 
-        async function viewLogs(name) {
-            const logs = await apiCall(`/namespaces/${window.currentNamespace}/pods/${name}/logs?tail=100`, 'GET', true);
-            document.getElementById('logConsoleArea').innerHTML = `<div style="background:#1e293b; color:#fff; padding:15px; border-radius:12px; margin-top:20px; font-family:monospace; white-space:pre-wrap;">${logs}</div>`;
+        async function viewLogs(name, btn) {
+            const row = btn.closest('tr');
+            const existingLog = document.getElementById(`logs-${name}`);
+
+            // Toggle: Se i log sono già aperti, li rimuoviamo
+            if (existingLog) {
+                existingLog.remove();
+                return;
+            }
+
+            try {
+                // Inseriamo una riga di caricamento immediata
+                row.insertAdjacentHTML('afterend', `
+                    <tr id="logs-${name}" class="log-row">
+                        <td colspan="6">
+                            <div class="log-container">
+                                <div style="display:flex; justify-content:space-between; color:#94a3b8; margin-bottom:5px;">
+                                    <small>Streaming logs for <b>${name}</b>...</small>
+                                    <button onclick="this.closest('tr').remove()" style="background:none; border:none; color:#94a3b8; cursor:pointer;">&times;</button>
+                                </div>
+                                <pre id="pre-${name}">Loading...</pre>
+                            </div>
+                        </td>
+                    </tr>`);
+
+                const logs = await apiCall(`/namespaces/${window.currentNamespace}/pods/${name}/logs?tail=100`, 'GET', true);
+                document.getElementById(`pre-${name}`).textContent = logs || "No logs available.";
+                
+            } catch (err) {
+                alert("Error: " + err.message);
+                document.getElementById(`logs-${name}`)?.remove();
+            }
         }
 
         async function downloadLogs(name) {
