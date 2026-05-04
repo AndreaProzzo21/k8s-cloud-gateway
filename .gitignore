@@ -1,4 +1,5 @@
 backend/certs/
+backend/data/
 .env
 frontend/favicon.ico
 frontend/logo_dashboard.jfif
