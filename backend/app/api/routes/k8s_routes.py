@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, status,
 from fastapi.responses import PlainTextResponse
 from typing import List, Dict
 from app.core.core_manager import CoreManager
-from app.api.dependencies.deps import get_current_core_manager
+from app.api.dependencies.get_core_manager import get_current_core_manager
 
 router = APIRouter()
 

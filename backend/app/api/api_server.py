@@ -5,6 +5,8 @@ from fastapi.responses import JSONResponse
 from app.core.exceptions import K8sBaseException
 from app.api.routes.k8s_routes import router as k8s_router
 from app.api.auth.auth_route import auth_router
+from app.api.auth.admin_route import admin_router
+from app.infrastructure.database import init_db
 
 def create_app() -> FastAPI:
     app = FastAPI(
@@ -40,5 +42,10 @@ def create_app() -> FastAPI:
     
     # Rotte operative Kubernetes (Protette via JWT: /api/v1/...)
     app.include_router(k8s_router, prefix="/api/v1", tags=["Kubernetes Operations"])
+
+    app.include_router(admin_router, prefix="/admin", tags=["Admin Operations"])
+    
+    # Creiamo DB che contiene i dati dei cluster
+    init_db()
 
     return app

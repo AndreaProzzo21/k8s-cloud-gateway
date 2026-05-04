@@ -3,125 +3,142 @@
 ## 1. Introduction
 The **K8s Cloud Gateway** is a stateless, multi-cluster management platform designed to provide granular, profile-based access to Kubernetes resources. It acts as an intelligent proxy between end-users and multiple Kubernetes clusters, abstracting the complexity of direct `kubectl` interactions while enforcing strict security policies.
 
-Unlike traditional dashboards, this gateway focuses on **Stateless Security**: it does not store persistent session data. Instead, it leverages **JWT (JSON Web Tokens)** to encapsulate cluster credentials, ensuring that each request is self-contained and cryptographically verified.
+Unlike traditional dashboards, this gateway focuses on **Stateless Security**: the server does not store session data. Instead, it leverages **JWT (JSON Web Tokens)** to encapsulate cluster credentials, ensuring that each request is self-contained and cryptographically verified.
 
 ## 2. Core Objectives
 *   **Multi-Cluster Orchestration**: Manage multiple independent Kubernetes clusters through a single unified API entry point.
 *   **Stateless Authentication**: Implement a Zero-Trust approach where cluster credentials (Service Account Tokens) never reside on the client-side in plain text.
-*   **Profile-Based Granularity**: Define specific access profiles (e.g., `admin`, `messaging-mgr`, `dev`) that map to native K8s RBAC (Role-Based Access Control).
-*   **Resource Lifecycle Management**: Provide a lightweight interface for monitoring Pods, scaling Deployments, and performing rollout restarts without requiring local K8s toolchains.
-*   **Digital Twin Support**: Facilitate the deployment of complex workloads via YAML manifest uploads directly through the web console.
+*   **Profile-Based Granularity**: Define specific access profiles (e.g., `admin`, `dev`) that map to native K8s RBAC (Role-Based Access Control).
+*   **Resource Lifecycle Management**: Provide a lightweight interface for monitoring Pods, scaling Deployments, and performing rollout restarts.
+*   **Database-Driven Configuration**: Dynamically manage clusters and access profiles via a persistent database instead of static environment variables.
 
 ## 3. High-Level Architecture
-The project follows a decoupled **Producer-Consumer** architecture split into three main layers:
+The project follows a decoupled architecture split into three main layers:
 
 ### A. The Frontend (Client Layer)
-*   **Technology**: Vanilla HTML5, CSS3 (Enterprise Dark Theme), and Modern JavaScript (Fetch API).
+*   **Technology**: Vanilla HTML5, CSS3, and Modern JavaScript (Fetch API).
 *   **Role**: Handles user interaction and session persistence via `localStorage`. It communicates with the Gateway using Bearer Token authentication.
 
 ### B. The API Gateway (Orchestration Layer)
-*   **Technology**: FastAPI (Python 3.11), PyJWT, Kubernetes Python Client.
+*   **Technology**: FastAPI (Python 3.11), PyJWT, Kubernetes Python Client, SQLAlchemy.
 *   **Role**: 
-    1.  **Authentication**: Validates Gateway passwords and exchanges them for a JWT containing encrypted cluster metadata.
-    2.  **Request Transformation**: Intercepts incoming requests, decodes the JWT to retrieve the target cluster's Host and Token, and forwards the command to the K8s API.
+    1.  **Authentication**: Validates Gateway passwords against the DB and exchanges them for a JWT containing encrypted cluster metadata (Host & K8s Token).
+    2.  **Security Dependency Injection**: A core `get_core_manager` dependency intercepts requests, decodes the JWT, and fetches the corresponding **CA Certificate** from the database to instantiate a secure `CoreManager`.
     3.  **Abstraction**: Converts complex K8s API responses into simplified JSON structures for the UI.
 
 ### C. The Kubernetes Layer (Infrastructure Layer)
-*   **Technology**: K8s Nodes (e.g., Ubuntu/VirtualBox), Service Accounts, RBAC.
 *   **Role**: The final destination of the commands. It enforces the actual permissions dictated by the Service Account Token provided by the Gateway.
 
 ## 4. Technical Data Flow & Security Workflow
 
-Instead of storing Kubernetes Service Account tokens in a database or local session, the gateway "wraps" them into a short-lived, encrypted JWT.
+The gateway avoids persistent server sessions by "wrapping" the Kubernetes Service Account token into a short-lived, encrypted JWT.
 
 ### Sequence Diagram
-The following diagram illustrates the interaction between the User (Browser), the Gateway API, and the Kubernetes Cluster during a standard resource request.
-
 ```mermaid
 sequenceDiagram
     participant User as User (Browser)
     participant Gateway as API Gateway (FastAPI)
+    participant DB as Database (SQLite)
     participant K8s as K8s API Server
 
     Note over User, Gateway: Phase 1: Authentication
     User->>Gateway: POST /auth/login (ClusterID, Profile, Password)
-    Gateway->>Gateway: Validate Gateway Password via Registry (.env)
-    Gateway->>Gateway: Fetch K8s Token for the requested Profile
-    Gateway-->>User: Return JWT (Contains encrypted Cluster Host & K8s Token)
+    Gateway->>DB: Verify Credentials
+    Gateway-->>User: Return JWT (Encrypted ClusterID, Host & K8s Token)
 
     Note over User, K8s: Phase 2: Resource Request
-    User->>Gateway: GET /api/v1/pods (Header: Authorization Bearer <JWT>)
-    Gateway->>Gateway: Decode JWT & Extract K8s Token + Cluster Host
-    Gateway->>K8s: Forward Request (Header: Authorization Bearer <K8s_Token>)
-    K8s->>K8s: RBAC Check (Does this Token have "view" access?)
+    User->>Gateway: GET /api/v1/pods (Header: Bearer <JWT>)
+    Gateway->>Gateway: Decode JWT to get SA Token
+    Gateway->>DB: Fetch CA Certificate for ClusterID
+    Gateway->>Gateway: Instantiate CoreManager (CA + JWT Token)
+    Gateway->>K8s: Forward Request with TLS Verification
     K8s-->>Gateway: Return Pod List (JSON)
     Gateway-->>User: Forward JSON Response
 ```
 
 ### Key Workflow Steps
 
-1.  **Identity Exchange**: During login, the user provides a "Gateway Password". The Gateway verifies this against the `.env` configuration. If valid, it retrieves the corresponding **Kubernetes Service Account Token**.
-2.  **JWT Encapsulation**: The Gateway generates a JWT. Crucially, the **K8s Token is stored inside the JWT payload**. This makes the Gateway stateless: it doesn't need to "remember" who you are; the token you carry holds all the information needed to talk to K8s.
-3.  **Dynamic Client Injection**: For every request (e.g., listing pods), a `K8sClientFactory` instantiates a temporary Kubernetes client using the host and token extracted from the JWT.
-4.  **Backend Pass-through**: The Gateway never modifies the permissions. It simply acts as a secure tunnel. If the K8s Token has limited permissions (e.g., only `view` on a specific namespace), Kubernetes itself will reject unauthorized actions, and the Gateway will forward that `403 Forbidden` error to the UI.
+1.  **Identity Exchange**: During login, the user provides the "Cluster ID", a "Profile" (corresponding to a Service Account) and a "Gateway Password". The Gateway verifies this against the database. If valid, it retrieves the **Kubernetes Service Account Token**.
+2.  **JWT Encapsulation**: The Gateway generates a JWT containing the **K8s Token** and **Cluster Host**. The JWT does *not* contain the CA Certificate to keep the token size manageable and secure.
+3.  **Dependency-Based Client Injection**: For every resource request, a FastAPI dependency decodes the JWT. It uses the `cluster_id` from the payload to query the database for the specific **CA Certificate**.
+4.  **Backend Pass-through**: The `CoreManager` uses the database-stored CA to verify the K8s API server's identity. If the K8s Token has limited permissions (e.g., only `view` on a specific namespace), Kubernetes will enforce RBAC and the Gateway will forward the result.
 
-## 5. Configuration & Dynamic Scaling
+## 5. Persistence & Certificate Management
 
-The Gateway is designed for **Horizontal Configuration Scaling**. It uses a naming convention in environment variables to automatically discover and register new clusters and access profiles at startup.
+The Gateway has transitioned from static environment variables to a **Persistent Database Registry** for improved scalability and security.
 
-### The Dynamic Registry Logic
-The `ClusterRegistry` module scans the environment variables for the `CLUSTER_{ID}_` prefix. This allows the system to:
-1.  **Identify the Cluster**: Through the `HOST` variable.
-2.  **Map Access Profiles**: Each cluster can have infinite profiles (e.g., `admin`, `dev`, `monitoring`).
-3.  **Encapsulate Security**: Each profile is mapped to its own Gateway Password and K8s Service Account Token.
+### Persistent Registry Logic
+The system uses a relational database to manage:
+1.  **Clusters**: Stores the Cluster ID, the API Host URL, and the **CA Certificate content** (uploaded via API).
+2.  **Profiles**: Maps specific access profiles to their respective cluster, passwords and K8s Service Account Tokens.
 
-### Setup Example (`.env`)
-To add a new cluster named `PRODUCTION`, you simply append these lines to your `.env` file:
+### SSL/TLS Configuration
+Security is handled dynamically:
+*   **No Volume Mounts**: CA Certificates are no longer stored as files on the host but are stored directly in the database as strings.
+*   **On-the-Fly Verification**: When a request is made, the certificate is pulled from the DB and used by the Python Kubernetes client to establish a trusted TLS connection.
 
-```bash
-# --- NEW CLUSTER: PRODUCTION ---
-CLUSTER_PRODUCTION_HOST=https://10.0.0.50:6443
+---
 
-# Define Cluster Service Account to be mapped
-CLUSTER_PRODUCTION_PROFILES=admin,dev
+## 6. API Capabilities & Dashboard Integration
 
-# Profile: Admin (Full access)
-CLUSTER_PRODUCTION_TOKEN_ADMIN=eyJhbGci...
-CLUSTER_PRODUCTION_PASS_ADMIN=prod_secure_pass_2026
+The Gateway exposes a comprehensive set of RESTful endpoints designed to map 1:1 with the Dashboard's visual controls. Each request is authenticated and routed to the correct cluster context via the `CoreManager` dependency.
 
-# Profile: Developer (Namespace restricted)
-CLUSTER_PRODUCTION_TOKEN_DEV=eyJhbGci...
-CLUSTER_PRODUCTION_PASS_DEV=dev_access_123
-```
+### A. Resource Orchestration (Read/Write)
+The dashboard leverages these endpoints to provide a real-time view of the cluster state:
 
-### SSL/TLS Configuration (CA Certificates)
-For production-grade security, the Gateway must verify the identity of the K8s API server. This is handled via a **CA Certificate Volume Mount**:
+*   **Workload Management**: Full CRUD on **Pods** and **Deployments** (including scaling, logs retrieval, and rollout restarts).
+*   **Networking**: Monitoring and management of **Services**.
+*   **Configuration**: Visibility into **ConfigMaps**, **Secrets**, and cluster **Events**.
+*   **Namespaces**: Dynamic creation and listing of isolated environments.
+*   **Infrastructure**: Real-time technical details of the cluster **Nodes**.
 
-*   **Host Path**: `./backend/certs/ca.crt`
-*   **Container Path**: `/app/certs/ca.crt` (configured via `K8S_CA_CERT_PATH`)
+### B. The "Universal Apply" (Digital Twin Engine)
+One of the core features of the gateway is the `POST /apply` endpoint. This allows users to bypass individual forms and deploy complex infrastructures in one go.
+*   **How it works**: Upload any standard `.yaml` or `.yml` file. 
+*   **Result**: The gateway parses the manifest and applies all contained resources (Deployments, Services, RBAC) to the specified namespace.
 
-This ensures that even if the Gateway is stateless, the communication channel with the cluster remains encrypted and verified against a trusted Authority.
+### C. Security & RBAC Monitoring
+To ensure compliance, the gateway provides specific endpoints to audit the security posture of each namespace:
+*   **Service Accounts**: List and delete identities.
+*   **Roles & RoleBindings**: Audit who has access to what, directly from the UI.
 
-## 6. Deployment with Docker Compose
+### Endpoint Overview Table
 
-The entire stack is containerized for "One-Command Deployment". It orchestrates two main services:
+| Category | Method | Path | Dashboard Action |
+| :--- | :--- | :--- | :--- |
+| **Apply** | `POST` | `/namespaces/{ns}/apply` | **Upload YAML Manifest** |
+| **Pods** | `GET` | `/namespaces/{ns}/pods` | View Pod List |
+| **Deploy** | `PATCH` | `/namespaces/{ns}/deployments/{n}/scale` | **Scale Replicas** |
+| **Deploy** | `POST` | `/namespaces/{ns}/deployments/{n}/restart` | **Rollout Restart** |
+| **Logs** | `GET` | `/namespaces/{ns}/pods/{n}/logs` | View Live Logs |
+| **Nodes** | `GET` | `/cluster/nodes` | Cluster Health Status |
+| **RBAC** | `GET` | `/namespaces/{ns}/rolebindings` | Access Audit |
 
-1.  **`backend`**: The FastAPI application serving the API.
-2.  **`frontend`**: An Nginx-alpine instance serving the static HTML/JS/CSS dashboard.
+
+While the Dashboard provides a user-friendly interface, the full interactive API documentation is always available for developers at:
+`http://localhost:8000/docs`
+
+---
+
+
+## 7. Deployment with Docker Compose
+
+The entire stack is containerized for "One-Command Deployment":
+
+1.  **`backend`**: The FastAPI application serving the API and managing the SQLite database.
+2.  **`frontend`**: An Nginx instance serving the static dashboard.
 
 ### Quick Start
 ```bash
 # 1. Clone the repository
 git clone https://github.com/AndreaProzzo21/k8s-cloud-gateway.git
 
-# 2. Configure your .env file with your K8s Tokens
-cp .env.example .env
-
-# 3. Spin up the infrastructure
+# 2. Spin up the infrastructure (Database initializes automatically)
 docker-compose up --build
 ```
 
-The console will be available at `http://localhost`, while the API documentation (Swagger) can be accessed at `http://localhost:8000/docs`.
+### Next Steps (Roadmap)
+*   **HTTP-Only Cookies**: Move from `localStorage` to `HttpOnly` cookies to store JWTs, mitigating XSS risks.
+*   **Encrypted Persistence**: Implement AES-256 encryption for the `k8s_token` and `gateway_password` columns within the database.
 
 ---
-

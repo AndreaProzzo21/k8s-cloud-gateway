@@ -829,29 +829,19 @@
             const url = `/namespaces/${ns}/${type}/${name}`;
 
             try {
-                // Chiamata corretta alla tua apiCall
                 await apiCall(url, 'DELETE'); 
-                
-                // Invece di showSuccess (che manca), usiamo un alert o log
-                console.log(`${name} successfully deleted`);
-                
-                // Se hai una funzione per i messaggi di errore, 
-                // forse vuoi definirne una simile per il successo:
-                // toastr.success(msg) o simili. Per ora usiamo:
                 alert(`${type} '${name}' successfully deleted.`);
 
                 refreshCurrentView(); 
                 
             } catch (err) {
-                // Assicurati che showError sia definita, altrimenti usa alert(err.message)
-                if (typeof showError === 'function') {
-                    showError(`Error in deleting ${name}: ${err.message}`);
-                } else {
-                    alert(`Errore: ${err.message}`);
-                }
+                    alert(`Error in deleting ${name}: ${err.message} `);
             }
         }
-        function showError(msg) { document.getElementById('resultArea').innerHTML = `<div class="error-box"><b>ERROR:</b><br>${msg}</div>`; }
+
+        function showError(msg) {
+            alert("ERROR:\n" + msg);
+        }
         function logout() { localStorage.clear(); window.location.href = 'index.html'; }
 
         // STILI
