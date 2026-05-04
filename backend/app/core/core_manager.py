@@ -253,7 +253,7 @@ class CoreManager:
             
         except Exception as e:
             # Gestisci l'eccezione
-            raise Exception(f"Errore durante il restart: {str(e)}")
+            self._handle_exception(e, f"Restart Deployment '{name}'")
 
     def delete_deployment(self, name: str, namespace: str):
         """Elimina un deployment specifico."""
