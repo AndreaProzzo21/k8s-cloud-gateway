@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from app.core.exceptions import K8sBaseException
-from app.api.routes import router as k8s_router
-from app.api.auth_route import auth_router  # Importiamo le nuove rotte di login
+from app.api.routes.k8s_routes import router as k8s_router
+from app.api.auth.auth_route import auth_router
 
 def create_app() -> FastAPI:
     app = FastAPI(

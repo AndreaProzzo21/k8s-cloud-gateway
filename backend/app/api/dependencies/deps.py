@@ -1,6 +1,6 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.api.auth_handler import decode_access_token
+from app.api.auth.auth_handler import decode_access_token
 from app.infrastructure.k8s_factory import K8sClientFactory
 from app.core.core_manager import CoreManager
 

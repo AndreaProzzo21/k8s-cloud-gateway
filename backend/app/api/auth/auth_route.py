@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Body, status
-from app.api.auth_handler import create_access_token
+from app.api.auth.auth_handler import create_access_token
 
 auth_router = APIRouter()
 
