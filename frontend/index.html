@@ -42,6 +42,13 @@
             padding: 0.6rem !important;
             font-size: 0.9rem !important;
         }
+        .auth-logo {
+            width: 64px;           /* Leggermente più grande per visibilità, o 32px come l'originale */
+            height: 64px;
+            object-fit: contain;   /* Mantiene le proporzioni senza tagliare l'immagine */
+            margin-bottom: 0.5rem;
+            border-radius: 8px;    /* Opzionale: arrotonda gli angoli se il logo è molto squadrato */
+        }
         #errorMessage {
             color: #e11d48;
             font-size: 0.8rem;
@@ -55,13 +62,7 @@
 <body class="auth-page" style="display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
     <div class="login-card">
         <div class="auth-header">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent);">
-                <circle cx="12" cy="12" r="10"></circle>
-                <line x1="12" y1="2" x2="12" y2="22"></line>
-                <line x1="2" y1="12" x2="22" y2="12"></line>
-                <path d="m4.93 4.93 14.14 14.14"></path>
-                <path d="m19.07 4.93-14.14 14.14"></path>
-            </svg>
+            <img src="logo_dashboard.jfif" alt="Logo" class="auth-logo">
             <h1>K8s Cloud Gateway</h1>
             <p>Cluster Management Console</p>
         </div>
