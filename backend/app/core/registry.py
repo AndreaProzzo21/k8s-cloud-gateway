@@ -27,7 +27,8 @@ class ClusterRegistry:
             return {
                 "host": cluster.host,
                 "token": profile.k8s_token,
-                "gateway_password": profile.gateway_password
+                "gateway_password": profile.gateway_password,
+                "ca_cert": cluster.ca_cert
             }
         finally:
             db.close()

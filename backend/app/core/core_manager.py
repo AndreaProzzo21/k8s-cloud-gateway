@@ -85,7 +85,7 @@ class CoreManager:
             # Se l'utente non può listare, non lanciamo un errore 403 bloccante,
             # ma informiamo il frontend che la lista è privata.
             return {
-                "can_list": false,
+                "can_list": False,
                 "items": []
             }
 
