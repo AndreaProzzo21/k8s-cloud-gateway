@@ -12,8 +12,6 @@ services:
     volumes:
       # Sincronizza la cartella app per il reload automatico di uvicorn
       - ./backend/app:/app/app
-      # Monta i certificati necessari per la connessione K8s
-      - ./backend/certs:/app/certs:ro
       # DB
       - ./backend/data:/app/data
     networks:
