@@ -181,27 +181,14 @@
     <script src="assets/js/modules/helm.js"></script>
 
     <script>
-    // ------------------------------------------------------------------
-    // GUARD: se non c'è JWT in localStorage redirect immediato al login
-    // ------------------------------------------------------------------
-    if (!localStorage.getItem('k8s_jwt')) {
-        window.location.replace('index.html');
-    }
-
-    // ------------------------------------------------------------------
-    // Stato globale (stesso schema della dashboard K8s)
-    // ------------------------------------------------------------------
     document.getElementById('displayCluster').innerText =
-        localStorage.getItem('current_cluster') || 'N/A';
+        localStorage.getItem('current_cluster') || '...';
     document.getElementById('displayProfile').innerText =
-        localStorage.getItem('current_profile') || 'N/A';
+        localStorage.getItem('current_profile') || '...';
 
     window.currentView      = 'releases';
     window.currentNamespace = localStorage.getItem('last_ns') || 'default';
 
-    // ------------------------------------------------------------------
-    // refreshCurrentView — identico pattern della dashboard principale
-    // ------------------------------------------------------------------
     function refreshCurrentView() {
         const viewMap = {
             releases : loadReleases,
@@ -213,10 +200,6 @@
         if (fn) fn();
     }
 
-    // ------------------------------------------------------------------
-    // updateNamespaceContext — override locale (helm non ha tutte le view
-    // namespace-sensitive della dashboard, ma loadReleases lo è)
-    // ------------------------------------------------------------------
     function updateNamespaceContext(val) {
         if (!val || val === 'undefined') return;
         window.currentNamespace = val;
@@ -224,55 +207,46 @@
         refreshCurrentView();
     }
 
-    // ------------------------------------------------------------------
-    // logout — identico alla dashboard principale
-    // ------------------------------------------------------------------
-    function logout() {
+    async function logout() {
+        try {
+            await fetch(`${API_BASE}/auth/logout`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+        } catch (_) {}
+
         const loginError = sessionStorage.getItem('login_error');
         localStorage.clear();
         sessionStorage.clear();
         if (loginError) sessionStorage.setItem('login_error', loginError);
-        document.cookie.split(';').forEach(c => {
-            document.cookie = c.replace(/^ +/, '')
-                               .replace(/=.*/, '=;expires=' + new Date().toUTCString() + ';path=/');
-        });
         window.location.replace('index.html');
     }
 
-    // ------------------------------------------------------------------
-    // setActive — override per helm: nessuna vista nasconde i controls
-    // tranne search/zip/repos che rendono il namespace selector inutile
-    // ------------------------------------------------------------------
     function setActive(el) {
         document.querySelectorAll('.sidebar li').forEach(li => li.classList.remove('active'));
         el.classList.add('active');
 
         const controls = document.getElementById('controlsContainer');
-        // Releases ha senso con il namespace; le altre viste no
-        const nsRelevant = ['menu-releases'];
-        controls.style.display = nsRelevant.includes(el.id) ? 'flex' : 'none';
+        controls.style.display = el.id === 'menu-releases' ? 'flex' : 'none';
     }
 
-    // ------------------------------------------------------------------
-    // initHelmDashboard
-    // ------------------------------------------------------------------
     async function initHelmDashboard() {
         renderLoadingOverlay(true, 'Loading Helm engine...');
         try {
-            // Verifica che il cluster sia raggiungibile prima di procedere.
-            // Riutilizziamo lo stesso health check della dashboard K8s.
             await apiCall('/cluster/health');
 
-            // Da qui in poi i 504 operativi faranno redirect (stesso flag della dashboard)
             window._dashboardReady = true;
             renderLoadingOverlay(false);
 
-            // Carica namespace selector e vista iniziale in parallelo
             await Promise.all([
                 loadNamespaceList(),
                 loadReleases(),
             ]);
         } catch (err) {
+            if (err.message === 'RESTRICTED') {
+                window.location.replace('index.html');
+                return;
+            }
             handleLoadingError(
                 err.message === 'CLUSTER_UNREACHABLE'
                     ? 'The host may be powered off or the cluster is not responding.'

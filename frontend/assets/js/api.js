@@ -1,18 +1,16 @@
 const API_BASE = "/api/v1";
 window.apiAbortController = new AbortController();
-
-// Flag: true durante l'health check iniziale, false dopo che la dashboard è caricata.
-// Serve a distinguere un 504 "pre-dashboard" (mostra overlay) da uno "operativo" (redirect).
 window._dashboardReady = false;
 
 async function apiCall(endpoint, method = 'GET', isText = false, body = null) {
-    const currentToken = localStorage.getItem('k8s_jwt');
+    // Niente più localStorage né header Authorization:
+    // il browser allega automaticamente il cookie httpOnly k8s_jwt
     const signal = window.apiAbortController.signal;
 
     const options = {
         method,
+        credentials: 'include',   // ← unica riga aggiunta
         headers: {
-            'Authorization': `Bearer ${currentToken}`,
             'Connection': 'close'
         },
         signal
@@ -34,11 +32,9 @@ async function apiCall(endpoint, method = 'GET', isText = false, body = null) {
 
         if (response.status === 504 || response.status === 503) {
             if (window._dashboardReady) {
-                // Dashboard già caricata: redirect al login con messaggio
                 _handleClusterUnreachable();
                 return new Promise(() => {});
             } else {
-                // Siamo ancora nell'health check: lascia che initDashboard gestisca
                 throw new Error("CLUSTER_UNREACHABLE");
             }
         }
@@ -59,9 +55,17 @@ async function apiCall(endpoint, method = 'GET', isText = false, body = null) {
     }
 }
 
-function _handleClusterUnreachable() {
+async function _handleClusterUnreachable() {
     sessionStorage.setItem('login_error', 'Cluster unreachable or timed out. Please check the cluster status and try again.');
-    localStorage.removeItem('k8s_jwt');
+    // Il backend cancella il cookie; il localStorage non esiste più
+    try {
+        await fetch(`${API_BASE}/auth/logout`, {
+            method: 'POST',
+            credentials: 'include'
+        });
+    } catch (_) {
+        // Se il logout fallisce (backend irraggiungibile) non blocchiamo il redirect
+    }
     window.location.replace('index.html');
 }
 

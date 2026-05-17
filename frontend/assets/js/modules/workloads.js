@@ -366,7 +366,7 @@ async function deleteNamespace(name) {
     // 1. Protezione per i namespace di sistema
     const protectedNamespaces = ['default', 'kube-system', 'kube-public', 'kube-node-lease', 'kube-flannel'];
     if (protectedNamespaces.includes(name)) {
-        showError(`Errore: Il namespace '${name}' è una risorsa di sistema e non può essere eliminato dal Gateway.`);
+        showError(`Error: Namespace '${name}' is a system resource. Cannot be deleted by the Gateway.`);
         return;
     }
 
@@ -388,8 +388,7 @@ async function deleteNamespace(name) {
         // L'URL corretto per un namespace è globale: /namespaces/{name}
         await apiCall(`/namespaces/${name}`, 'DELETE');
         
-        showSuccess(`Il processo di eliminazione per '${name}' è iniziato. Potrebbe apparire come 'Terminating' per qualche istante.`);
-        
+        showSuccess("Deletion Started", `The deletion process for '${name}' has started. It may appear as 'Terminating' for a few moments.`);
         // Ricarichiamo la lista dei namespace
         await loadNamespace();
         

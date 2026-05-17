@@ -1,22 +1,37 @@
 async function addNewNamespace() {
-const name = prompt("Inserisci il nome del nuovo Namespace:");
-if (!name || name.trim() === "") return;
+    // Custom prompt for a consistent "Cyber Dark" UI
+    const name = await showPrompt("New Namespace", "Enter the name for the new Namespace:");
 
-try {
-// Chiamata all'endpoint POST /namespaces/{name} del tuo router
-await apiCall(`/namespaces/${name}`, 'POST');
+    // Exit if the user cancels or provides an empty input
+    if (!name || name.trim() === "") return;
 
-alert(`Namespace '${name}' creato con successo!`);
+    // K8s best practice: trim and lowercase the input
+    const cleanName = name.trim().toLowerCase();
 
-// Ricarichiamo la lista per vedere il nuovo namespace nella select
-await loadNamespaceList();
+    // Basic K8s name validation (lowercase, numbers, dashes)
+    const dnsRegex = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+    if (!dnsRegex.test(cleanName)) {
+        showError("Invalid name. Use only lowercase letters, numbers, and dashes.");
+        return;
+    }
 
-// Selezioniamo automaticamente il nuovo namespace
-updateNamespaceContext(name);
+    try {
+        // API call to the POST /namespaces/{name} endpoint
+        await apiCall(`/namespaces/${cleanName}`, 'POST');
 
-} catch (err) {
-showError("Impossibile creare il namespace: " + err.message);
-}
+        // Elegant success notification
+        await showSuccess("Creation Successful", `Namespace <b>${cleanName}</b> has been created.`);
+
+        // Refresh the namespace list to show the new entry in the selector
+        await loadNamespaceList();
+
+        // Automatically switch the dashboard context to the new namespace
+        updateNamespaceContext(cleanName);
+
+    } catch (err) {
+        // Handle API or RBAC errors
+        showError("Failed to create namespace: " + err.message);
+    }
 }
 
 async function loadNamespaceList() {
@@ -39,7 +54,6 @@ showManualInput();
 }
 } catch (err) {
 // CASO RESTRICTED (403): Se l'API fallisce del tutto, mostriamo l'input manuale
-console.warn("Accesso alla lista namespace negato. Passo a modalità manuale.");
 showManualInput();
 }
 

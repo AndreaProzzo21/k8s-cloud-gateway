@@ -211,16 +211,18 @@
 
     <!-- 3. Script di avvio (Bootstrapper) -->
     <script>
-    if (!localStorage.getItem('k8s_jwt')) {
-        window.location.replace('index.html');
-    }
+    // ── GUARD DI SESSIONE ─────────────────────────────────────────────────────────
+    // Con httpOnly cookie JS non può leggere k8s_jwt, quindi non possiamo fare
+    // il check locale. initDashboard() chiama subito /cluster/health:
+    // se il cookie manca o è scaduto il backend risponde 401 e gestiamo il redirect lì.
+    // Nessun check localStorage qui.
 
-    document.getElementById('displayCluster').innerText = localStorage.getItem('current_cluster') || 'N/A';
-    document.getElementById('displayProfile').innerText = localStorage.getItem('current_profile') || 'N/A';
+    document.getElementById('displayCluster').innerText = localStorage.getItem('current_cluster') || '...';
+    document.getElementById('displayProfile').innerText = localStorage.getItem('current_profile') || '...';
 
-    window.currentView      = 'pods'; // Default prudenziale
+    window.currentView      = 'pods';
     window.currentNamespace = localStorage.getItem('last_ns') || 'default';
-    window.userProfile      = 'restricted'; // Default per sicurezza (Zero Trust)
+    window.userProfile      = 'restricted'; // Zero Trust default
 
     function refreshCurrentView() {
         if (window.userProfile === 'restricted' && window.currentView === 'nodes') {
@@ -256,63 +258,83 @@
         refreshCurrentView();
     }
 
-    function logout() {
+    async function logout() {
+        // 1. Invalida il cookie lato server
+        try {
+            await fetch(`${API_BASE}/auth/logout`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+        } catch (_) {
+            // Se il backend non risponde procediamo comunque col redirect
+        }
+
+        // 2. Pulisce solo i dati di UI (last_ns, current_cluster, current_profile)
+        // Non c'è più nessun token JWT in localStorage da rimuovere
         const loginError = sessionStorage.getItem('login_error');
         localStorage.clear();
         sessionStorage.clear();
         if (loginError) sessionStorage.setItem('login_error', loginError);
-        document.cookie.split(";").forEach(c => {
-            document.cookie = c.replace(/^ +/, "").replace(/=.*/, 
-                "=;expires=" + new Date().toUTCString() + ";path=/");
-        });
+
         window.location.replace('index.html');
     }
 
     async function initDashboard() {
         renderLoadingOverlay(true, "Session configuration...");
         try {
-            // 1. Check connettività
+            // 1. Connettività — se il cookie manca/è scaduto risponde 401 → catch → redirect
             await apiCall('/cluster/health');
-            
-            // 2. Recupero profilo RBAC reale dal cluster
+
+            // 2. Profilo RBAC reale dal cluster
             const authInfo = await apiCall('/auth/me');
-            
-            // Salviamo lo stato globale
-            window.userProfile = authInfo.profile; 
-            window.canListNamespaces = authInfo.can_list_namespaces;
-            
-            // Aggiorniamo le label nell'header
-            document.getElementById('displayProfile').innerText = localStorage.getItem('current_profile') || 'N/A';
-            document.getElementById('displayCluster').innerText = localStorage.getItem('current_cluster') || 'N/A';
 
-            window._dashboardReady = true;
+            // authInfo contiene cluster_id e profile dal payload JWT,
+            // usiamoli per aggiornare l'header al posto di localStorage
+            // (localStorage resta come fallback visivo durante il caricamento iniziale)
+            if (authInfo.cluster_id) {
+                document.getElementById('displayCluster').innerText = authInfo.cluster_id;
+                localStorage.setItem('current_cluster', authInfo.cluster_id);
+            }
+            if (authInfo.profile) {
+                document.getElementById('displayProfile').innerText = authInfo.profile;
+                localStorage.setItem('current_profile', authInfo.profile);
+            }
 
-            // 3. LOGICA DI INDIRIZZAMENTO (Senza nascondere nulla)
-            // Decidiamo solo quale elemento attivare graficamente all'avvio
-            let targetMenuId = (authInfo.profile === "admin") ? 'menu-nodes' : 'menu-pods';
-            window.currentView = (authInfo.profile === "admin") ? 'nodes' : 'pods';
-            
-            const targetEl = document.getElementById(targetMenuId);
-            
-            // Reset grafico sidebar e attivazione target
+            window.userProfile         = authInfo.profile;
+            window.canListNamespaces   = authInfo.can_list_namespaces;
+            window._dashboardReady     = true;
+
+            // 3. Vista iniziale in base al profilo
+            const isAdmin = authInfo.profile === 'admin' || authInfo.profile === 'gateway-admin';
+            window.currentView = isAdmin ? 'nodes' : 'pods';
+            const targetMenuId = isAdmin ? 'menu-nodes' : 'menu-pods';
+
             document.querySelectorAll('.sidebar li').forEach(li => li.classList.remove('active'));
-            if(targetEl) targetEl.classList.add('active');
+            const targetEl = document.getElementById(targetMenuId);
+            if (targetEl) targetEl.classList.add('active');
 
-            // 4. GESTIONE NAMESPACE
-            // Se può elencarli carichiamo la select, altrimenti mostriamo l'input manuale
+            // 4. Namespace
             if (authInfo.can_list_namespaces) {
-                await loadNamespaceList(); 
+                await loadNamespaceList();
             } else {
-                showManualInput(); 
+                showManualInput();
             }
 
             renderLoadingOverlay(false);
-            
-            // 5. Caricamento finale dei dati per la vista scelta
+
+            // 5. Caricamento vista iniziale
             refreshCurrentView();
 
         } catch (err) {
             console.error("Inizializzazione fallita:", err);
+
+            // 401 da apiCall viene lanciato come "RESTRICTED"
+            // Se il cookie è assente/scaduto il backend risponde 401 → redirect al login
+            if (err.message === 'RESTRICTED') {
+                window.location.replace('index.html');
+                return;
+            }
+
             handleLoadingError(err.message || "Errore di comunicazione con il cluster.");
         }
     }

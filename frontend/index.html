@@ -88,49 +88,51 @@
     </div>
 
     <script>
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const msgDiv = document.getElementById('errorMessage');
-            const btn = e.target.querySelector('button');
-            
-            msgDiv.innerText = "";
-            msgDiv.style.padding = "0";
-            btn.innerText = "Connecting...";
-            btn.disabled = true;
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const msgDiv = document.getElementById('errorMessage');
+        const btn = e.target.querySelector('button');
 
-            const payload = {
-                cluster_id: document.getElementById('clusterId').value,
-                profile: document.getElementById('profile').value,
-                password: document.getElementById('password').value
-            };
+        msgDiv.innerText = "";
+        msgDiv.style.padding = "0";
+        btn.innerText = "Connecting...";
+        btn.disabled = true;
 
-            try {
-                const response = await fetch('/api/v1/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+        const payload = {
+            cluster_id: document.getElementById('clusterId').value,
+            profile: document.getElementById('profile').value,
+            password: document.getElementById('password').value
+        };
 
-                const data = await response.json();
+        try {
+            const response = await fetch('/api/v1/auth/login', {
+                method: 'POST',
+                credentials: 'include',   // ← necessario perché il browser accetti il Set-Cookie
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
 
-                if (response.ok) {
-                    localStorage.setItem('k8s_jwt', data.access_token);
-                    localStorage.setItem('current_cluster', payload.cluster_id);
-                    localStorage.setItem('current_profile', payload.profile);
-                    window.location.href = 'dashboard.html';
-                } else {
-                    msgDiv.innerText = data.detail || "Authentication Failed";
-                    msgDiv.style.padding = "8px";
-                    btn.innerText = "Connect to Cluster";
-                    btn.disabled = false;
-                }
-            } catch (err) {
-                msgDiv.innerText = "Error: Backend Unreachable";
+            const data = await response.json();
+
+            if (response.ok) {
+                // Il cookie httpOnly k8s_jwt è già stato impostato dal backend nella response.
+                // Salviamo solo i dati di UI per la dashboard.
+                localStorage.setItem('current_cluster', payload.cluster_id);
+                localStorage.setItem('current_profile', payload.profile);
+                window.location.href = 'dashboard.html';
+            } else {
+                msgDiv.innerText = data.detail || "Authentication Failed";
                 msgDiv.style.padding = "8px";
                 btn.innerText = "Connect to Cluster";
                 btn.disabled = false;
             }
-        });
+        } catch (err) {
+            msgDiv.innerText = "Error: Backend Unreachable";
+            msgDiv.style.padding = "8px";
+            btn.innerText = "Connect to Cluster";
+            btn.disabled = false;
+        }
+    });
     </script>
 </body>
 </html>
