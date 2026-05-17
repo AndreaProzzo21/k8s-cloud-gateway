@@ -1,16 +1,14 @@
 import time
 import logging
 import asyncio
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-# Import Middleware personalizzati
 from app.api.rate_limiter import RateLimitMiddleware
-
-# Import Interni
 from app.core.exceptions import K8sBaseException
 from app.api.routes.k8s_routes import router as k8s_router
 from app.api.routes.helm_routes import router as helm_router
@@ -20,92 +18,131 @@ from app.api.routes.audit_routes import audit_router
 from app.infrastructure.database import init_db
 from app.core.fleet_manager import FleetManager
 
-# Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("k8s_gateway")
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """ Lifecycle manager per startup e shutdown del gateway """
+    """Lifecycle manager per startup e shutdown del gateway."""
     logger.info("🚀 Avvio K8S Cloud Gateway...")
     init_db()
-    
-    # Background Task: Observer per la salute dei cluster
     asyncio.create_task(FleetManager.start_observer(interval_seconds=30))
-    
     yield
     logger.info("🛑 Spegnimento Gateway...")
+
+
+def _get_allowed_origins() -> list[str]:
+    """
+    Costruisce la lista delle origini CORS consentite.
+
+    Con nginx come reverse proxy il browser vede sempre una sola origine
+    (quella di nginx), quindi questa lista copre:
+      - sviluppo locale diretto sul frontend (porta 80 o 3000 con dev server)
+      - accesso via NodePort Kubernetes
+      - dominio personalizzato se configurato via Ingress
+
+    Aggiungere ulteriori origini tramite la variabile d'ambiente
+    CORS_EXTRA_ORIGINS (separare con virgola):
+      CORS_EXTRA_ORIGINS=https://k8s-gateway.example.com,http://192.168.1.10:30090
+    """
+    origins = [
+        "http://localhost",
+        "http://localhost:80",
+        "http://127.0.0.1",
+        "http://127.0.0.1:80",
+    ]
+
+    extra = os.getenv("CORS_EXTRA_ORIGINS", "")
+    if extra:
+        origins.extend(o.strip() for o in extra.split(",") if o.strip())
+
+    return origins
+
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title="K8S Cloud Gateway",
         description="Integrated Framework for Multi-Cluster Kubernetes Governance",
         version="1.0.0",
-        lifespan=lifespan
+        lifespan=lifespan,
+        # Swagger disabilitato: documentazione su GitHub Pages
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
 
-    # --- MIDDLEWARE CHAIN ---
+    # ── MIDDLEWARE CHAIN ────────────────────────────────────────────────
+    # L'ordine conta: ogni middleware wrappa quello successivo.
+    # RateLimit → CORS → route handler.
 
-    # 1. Protezione Rate Limit (IP-based)
+    # 1. Rate limiting IP-based
     app.add_middleware(RateLimitMiddleware, calls_per_minute=40)
 
-    # 2. Configurazione CORS
+    # 2. CORS
+    # Con reverse proxy nginx sulla stessa origine il CORS non viene mai
+    # attivato dal browser per le chiamate normali dell'app. È configurato
+    # correttamente comunque perché:
+    #   a) allow_origins="*" + allow_credentials=True è rifiutato dai browser
+    #   b) garantisce comportamento corretto se il backend venisse esposto
+    #      direttamente in futuro (es. sviluppo, testing con client esterni)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=_get_allowed_origins(),
+        allow_credentials=True,     # necessario per i cookie httpOnly
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # # 3. Performance Logging (Timing Middleware)
+    # 3. Performance logging — decommentare per debug/profiling
     # @app.middleware("http")
     # async def add_process_time_header(request: Request, call_next):
     #     start_time = time.perf_counter()
     #     response = await call_next(request)
     #     process_time = time.perf_counter() - start_time
     #     response.headers["X-Process-Time"] = f"{process_time:.4f}s"
-        
     #     logger.info(
     #         f"REQ: {request.method} {request.url.path} | "
     #         f"RES: {response.status_code} | TIME: {process_time:.4f}s"
     #     )
     #     return response
 
-    # --- EXCEPTION HANDLERS ---
+    # ── EXCEPTION HANDLERS ─────────────────────────────────────────────
 
     @app.exception_handler(K8sBaseException)
     async def k8s_exception_handler(request: Request, exc: K8sBaseException):
         return JSONResponse(
             status_code=exc.status_code,
             content={
-                "error": "K8S_GATEWAY_ERROR", 
+                "error": "K8S_GATEWAY_ERROR",
                 "message": exc.message,
-                "status_code": exc.status_code
+                "status_code": exc.status_code,
             },
         )
-    
+
+    # ── SYSTEM ENDPOINTS ───────────────────────────────────────────────
+
     @app.get("/health", tags=["System"])
     async def health_check():
         """
-        Verifica lo stato di salute del Gateway.
-        Utile per Kubernetes Liveness/Readiness Probes.
+        Liveness/Readiness probe per Kubernetes.
+        Non richiede autenticazione. Non passa per nginx.
         """
         return {
             "status": "healthy",
             "timestamp": time.time(),
-            "version": "1.0.0"
+            "version": "1.0.0",
         }
 
-    # --- ROUTING REGISTRATION ---
-    
-    # Prefix unificato /api/v1 per coerenza con il Reverse Proxy
-    app.include_router(auth_router, prefix="/api/v1/auth", tags=["Authentication"])
-    app.include_router(k8s_router, prefix="/api/v1", tags=["Kubernetes Operations"])
-    app.include_router(helm_router, prefix="/api/v1/helm", tags=["Helm Management"])
-    app.include_router(admin_router, prefix="/api/v1/admin", tags=["Admin Operations"])
-    app.include_router(audit_router, prefix="/api/v1/admin/audit", tags=["Audit Operations"])
+    # ── ROUTING ────────────────────────────────────────────────────────
+
+    app.include_router(auth_router,   prefix="/api/v1/auth",         tags=["Authentication"])
+    app.include_router(k8s_router,    prefix="/api/v1",               tags=["Kubernetes Operations"])
+    app.include_router(helm_router,   prefix="/api/v1/helm",          tags=["Helm Management"])
+    app.include_router(admin_router,  prefix="/api/v1/admin",         tags=["Admin Operations"])
+    app.include_router(audit_router,  prefix="/api/v1/admin/audit",   tags=["Audit Operations"])
 
     return app
+
 
 app = create_app()
