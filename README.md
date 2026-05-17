@@ -60,8 +60,8 @@ graph TB
         CN["Cluster N"]
     end
 
-    K8sUI -->|Bearer JWT| Auth
-    HelmUI -->|Bearer JWT| Auth
+    K8sUI -->|httpOnly cookie JWT| Auth
+    HelmUI -->|httpOnly cookie JWT| Auth
     Auth --> SharedDep
     SharedDep -->|ca_cert + k8s_token| DB
     SharedDep --> CoreMgr
@@ -89,10 +89,11 @@ sequenceDiagram
     User->>GW: POST /auth/login<br/>{cluster_id, profile, password}
     GW->>DB: verify credentials
     DB-->>GW: ok
-    GW-->>User: JWT {cluster_id, profile, exp}<br/>⚠ no k8s_token inside
+    GW-->>User: Set-Cookie: k8s_jwt=JWT (HttpOnly, SameSite=Lax)<br/>⚠ token never in response body<br/>⚠ no k8s_token inside JWT
 
     Note over User,K8s: Phase 2 — Resource Request
-    User->>GW: GET /api/v1/namespaces/{ns}/pods<br/>Authorization: Bearer JWT
+    User->>GW: GET /api/v1/namespaces/{ns}/pods<br/>Cookie: k8s_jwt=JWT (automatic, invisible to JS)
+    GW->>GW: extract JWT from httpOnly cookie
     GW->>GW: decode & validate JWT
     GW->>DB: fetch ca_cert for cluster_id
     GW->>DB: fetch k8s_token for profile
@@ -101,10 +102,15 @@ sequenceDiagram
     GW->>K8s: forward request
     K8s-->>GW: response (K8s enforces RBAC)
     GW-->>User: JSON response
+
+    Note over User,GW: Phase 3 — Logout
+    User->>GW: POST /auth/logout
+    GW-->>User: Set-Cookie: k8s_jwt=; expires=past
 ```
 
 **JWT payload contains:** `cluster_id`, `cluster_host`, `profile`, `jti`, `exp`
 **JWT payload never contains:** `k8s_token`, `ca_cert`, `password`
+**JWT transport:** `HttpOnly` cookie — never accessible from JavaScript, never stored in `localStorage`
 
 ---
 
@@ -118,7 +124,7 @@ sequenceDiagram
     participant FS as Filesystem /tmp
     participant Helm as helm CLI
 
-    User->>GW: POST /api/v1/helm/namespaces/{ns}/releases/{name}/from-zip<br/>Authorization: Bearer JWT
+    User->>GW: POST /api/v1/helm/namespaces/{ns}/releases/{name}/from-zip<br/>Cookie: k8s_jwt=JWT
     GW->>DB: fetch ca_cert + k8s_token
     DB-->>GW: credentials
     GW->>FS: write temp kubeconfig (0600)<br/>/tmp/helm_kube_{cluster_id}_{rand}.yaml
@@ -134,11 +140,11 @@ sequenceDiagram
 
 ## Admin API
 
-Cluster and profile management is protected by a master key sent in the `master-key` HTTP header. This API is intended for platform administrators only and is not exposed through the frontend.
+Cluster and profile management is protected by a master key sent in the `X-Admin-Key` HTTP header. This API is intended for platform administrators only and is not exposed through the frontend.
 
 ```
 Base path: /api/v1/admin
-Header:    master-key: <ADMIN_MASTER_KEY>
+Header:    X-Admin-Key: <ADMIN_MASTER_KEY>
 ```
 
 ### Clusters
@@ -162,8 +168,8 @@ Header:    master-key: <ADMIN_MASTER_KEY>
 **Register a cluster (example):**
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/admin/clusters \
-  -H "master-key: your-admin-key" \
+curl -X POST http://localhost/api/v1/admin/clusters \
+  -H "X-Admin-Key: your-admin-key" \
   -F "id=MY-CLUSTER" \
   -F "name=Production K3s" \
   -F "host=https://10.0.0.1:6443" \
@@ -173,8 +179,8 @@ curl -X POST http://localhost:8000/api/v1/admin/clusters \
 **Register a profile (example):**
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/admin/profiles \
-  -H "master-key: your-admin-key" \
+curl -X POST http://localhost/api/v1/admin/profiles \
+  -H "X-Admin-Key: your-admin-key" \
   -H "Content-Type: application/json" \
   -d '{
     "cluster_id": "MY-CLUSTER",
@@ -204,7 +210,7 @@ k8s-cloud-gateway/
 |       |   |   ├── auth_routes.py
 │       │   │   └── auth_handler.py          # JWT issue & decode
 │       │   ├── dependencies/
-│       │   │   ├── get_cluster_credentials.py   # shared: JWT + DB → ClusterCredentials
+│       │   │   ├── get_cluster_credentials.py   # shared: JWT cookie + DB → ClusterCredentials
 │       │   │   ├── get_core_manager.py           # builds CoreManager
 │       │   │   └── get_helm_manager.py           # builds HelmManager + kubeconfig lifecycle
 │       │   ├── routes/
@@ -236,7 +242,7 @@ k8s-cloud-gateway/
 │   └── assets/
 │       ├── css/style.css
 │       └── js/
-│           ├── api.js                       # apiCall(), JWT handling, error dispatch
+│           ├── api.js                       # apiCall(), cookie auth, error dispatch
 │           ├── ui.js                        # Shared UI helpers
 │           └── modules/
 │               ├── cluster.js
@@ -286,11 +292,13 @@ The frontend container (Nginx) serves two roles: static file server and reverse 
 
 ```
 Browser → :80 (Nginx)
-              ├── /api/*    → proxy_pass → backend:8000  (internal network only)
+              ├── /api/v1/* → proxy_pass → backend:8000  (internal network only)
               └── /*        → serve static files
 ```
 
 This means the backend API is never directly reachable from outside the container network, and the browser only ever talks to a single origin — no CORS issues, no exposed internal ports.
+
+The `HttpOnly` cookie set at login is automatically attached by the browser to every subsequent request to the same origin. Because frontend and backend share the same origin through Nginx, the cookie flows transparently without any JavaScript involvement.
 
 ### Environment Variables
 
@@ -316,6 +324,10 @@ DATABASE_URL=data/gateway.db
 # Fernet encryption key for sensitive DB fields (k8s_token, gateway_password, ca_cert)
 ENCRYPTION_KEY=
 # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# Additional allowed CORS origins, comma-separated (optional)
+# Example: CORS_EXTRA_ORIGINS=https://k8s-gateway.example.com,http://192.168.1.10:30090
+CORS_EXTRA_ORIGINS=
 ```
 
 ### Docker Compose (development / build)
@@ -381,38 +393,41 @@ volumes:
 
 ## Security Notes
 
-| Topic | Current state | Roadmap |
-|---|---|---|
-| JWT storage | `localStorage` | Migrate to `HttpOnly` cookies |
-| DB credentials at rest | Fernet-encrypted (k8s_token, gateway_password, ca_cert) | ✅ Done |
-| Authorization | Delegated to K8s RBAC | Optional namespace allowlist per profile |
-| Backend port exposure | Internal only — not reachable from host | ✅ Done |
-| Helm kubeconfig | Temp file `0600`, deleted after request | ✅ Done |
-| CA certificate | Written to `/tmp` once per cluster, cached | ✅ Done |
-| Admin API | Protected by master key header | Consider IP allowlist in production |
+| Topic | Current state |
+|---|---|
+| JWT transport | `HttpOnly` cookie — inaccessible to JavaScript, never in `localStorage` |
+| XSS token theft | Mitigated — JS cannot read or exfiltrate the session cookie |
+| CSRF | Mitigated by `SameSite=Lax` — cross-site requests do not carry the cookie |
+| DB credentials at rest | Fernet-encrypted (`k8s_token`, `gateway_password`, `ca_cert`) |
+| Authorization | Delegated to Kubernetes RBAC — no shadow permission system |
+| Backend port exposure | Internal Docker/K8s network only — not reachable from host |
+| Helm kubeconfig | Temp file `0600`, deleted immediately after each request |
+| CA certificate | Stored encrypted in DB, written to `/tmp` per-request, never persisted |
+| Admin API | Protected by `X-Admin-Key` header — consider IP allowlist in production |
+| Swagger / OpenAPI | Disabled at application level — documentation on GitHub Pages |
+| Secrets management | Environment variables / Kubernetes Secret — consider Vault for production |
 
 ---
 
 ### API Documentation
 
-The framework provides two ways to explore and test the available endpoints:
+The interactive Swagger UI is disabled in production to avoid exposing the API schema.
+Full documentation, architecture details, and API reference are available on the developer portal:
 
-* **Official Developer Portal (Static)**:
-For a deep dive into the architecture, governance principles, and detailed API schemas, visit our **[Online Documentation](https://andreaprozzo21.github.io/k8s-cloud-gateway/)**. This version is always available and powered by Redoc.
-* **Interactive Swagger UI (Live)**:
-When the gateway is running locally, you can access the interactive documentation at:
-[`http://localhost:8000/docs`](https://www.google.com/search?q=http://localhost:8000/docs)
+**[andreaprozzo21.github.io/k8s-cloud-gateway](https://andreaprozzo21.github.io/k8s-cloud-gateway/)**
 
 ---
 
 ## Roadmap
 
-- [ ] `HttpOnly` cookie-based JWT storage to mitigate XSS
 - [ ] Namespace allowlist per profile (enforced server-side before reaching K8s)
 - [ ] WebSocket streaming for real-time pod logs
-- [ ] Multi-user audit log
+- [ ] Improve clusters background observation
 - [ ] OCI registry support for Helm chart distribution
 - [ ] Helm dependency resolution (`helm dependency update`) before ZIP deploy
+- [ ] Vault integration for secret management
+- [x] `HttpOnly` cookie-based JWT storage — XSS cannot exfiltrate the session token
+- [x] Swagger UI disabled — API schema not exposed in production
 - [x] Fernet encryption for sensitive database columns
 - [x] Nginx reverse proxy — backend port no longer exposed to host
 - [x] Fleet observer with compliance audit engine
