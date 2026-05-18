@@ -2,56 +2,56 @@
 audit_engine.py
 ===============
 
-Motore di compliance per la valutazione delle audit rules sul fleet.
+Compliance engine for evaluating audit rules against the fleet.
 
-Architettura
+Architecture
 ------------
-Le regole sono oggetti ``AuditRule`` registrati nel dizionario ``RULE_REGISTRY``.
-Ogni regola dichiara:
+Rules are ``AuditRule`` objects registered in the ``RULE_REGISTRY`` dictionary.
+Each rule declares:
 
-- ``id``          — chiave univoca, usata come ``rule_id`` nel DB.
-- ``name``        — nome leggibile mostrato nella UI.
-- ``description`` — spiegazione di cosa verifica la regola.
-- ``severity``    — impatto se la regola fallisce: ``critical``, ``warning``, ``info``.
-- ``needs``       — set di chiavi dati richieste nel cluster snapshot.
-                    Usato dallo scanner per sapere cosa raccogliere.
-- ``evaluate``    — funzione ``(cluster_data: dict) -> AuditFinding`` che
-                    esegue la valutazione e restituisce il risultato.
+- ``id``          — unique key, used as ``rule_id`` in the DB.
+- ``name``        — human-readable name shown in the UI.
+- ``description`` — explanation of what the rule checks.
+- ``severity``    — impact if the rule fails: ``critical``, ``warning``, ``info``.
+- ``needs``       — set of data keys required from the cluster snapshot.
+                    Used by the scanner to know what to collect.
+- ``evaluate``    — function ``(cluster_data: dict) -> AuditFinding`` that
+                    performs the evaluation and returns the result.
 
-Logica default-on
+Default-on logic
+----------------
+If no ``AuditRuleConfig`` record exists in the DB for a given
+(cluster_id, rule_id) pair, the rule is considered **enabled**.
+This ensures a freshly registered cluster is immediately subject to
+the full audit suite without any manual configuration.
+
+Adding a new rule
 -----------------
-Se nel DB non esiste un record ``AuditRuleConfig`` per una coppia
-(cluster_id, rule_id), la regola viene considerata **abilitata**.
-Questo garantisce che un cluster appena registrato sia subito sottoposto
-all'intera suite di audit senza configurazione manuale.
+1. Define an ``evaluate(cluster: dict) -> AuditFinding`` function.
+2. Create an ``AuditRule`` instance with the required fields.
+3. Register it in ``RULE_REGISTRY``.
+No DB migration required.
 
-Aggiungere una nuova regola
----------------------------
-1. Definire una funzione ``evaluate(cluster: dict) -> AuditFinding``.
-2. Creare un'istanza ``AuditRule`` con i campi richiesti.
-3. Registrarla in ``RULE_REGISTRY``.
-Nessuna migration DB necessaria.
-
-Dati disponibili dallo scanner
-------------------------------
-Il cluster snapshot fornito a ``run_audit`` ha questa struttura::
+Available data from the scanner
+--------------------------------
+The cluster snapshot provided to ``run_audit`` has this structure::
 
     {
         "cluster_id":   str,
         "cluster_name": str,
         "host":         str,
         "status":       "online" | "offline" | "degraded",
-        "server_version": str,          # es. "1.30"
+        "server_version": str,          # e.g. "1.30"
         "error":        str | None,
         "nodes": [
             {
                 "name":             str,
-                "status":           str,   # "Ready" | altro
+                "status":           str,   # "Ready" | other
                 "role":             str,   # "Control Plane" | "Worker"
-                "version":          str,   # es. "v1.30.14"
+                "version":          str,   # e.g. "v1.30.14"
                 "os":               str,
-                "cpu":              str,   # numero come stringa
-                "memory":           str,   # Ki come stringa
+                "cpu":              str,   # number as string
+                "memory":           str,   # Ki as string
                 "cpu_allocatable":  str,
                 "mem_allocatable":  str,
             }
@@ -67,7 +67,11 @@ Il cluster snapshot fornito a ``run_audit`` ha questa struttura::
             "pods_total":   int,
             "pods_running": int,
             "pods_failed":  int,
+            "pods_pending": int,
             "namespaces_total": int,
+            "services_lb":  int,
+            "deployments_single_replica": int,
+            "deprecated_apis": bool,
         }
     }
 """
@@ -81,19 +85,19 @@ from app.infrastructure.database import AuditRuleConfig, SessionLocal
 
 
 # ---------------------------------------------------------------------------
-# Strutture dati
+# Data structures
 # ---------------------------------------------------------------------------
 
 @dataclass
 class AuditFinding:
     """
-    Risultato della valutazione di una singola regola su un singolo cluster.
+    Result of evaluating a single rule against a single cluster.
 
-    ``passed`` è True se il cluster soddisfa il requisito della regola.
-    ``detail`` contiene una descrizione leggibile del risultato, inclusi
-    dettagli specifici (es. nomi dei nodi non ready, versione rilevata).
-    ``evidence`` è un dizionario opzionale con dati strutturati per la UI
-    (es. lista di namespace senza quota, lista di nodi con versione outdated).
+    ``passed`` is True if the cluster satisfies the rule's requirement.
+    ``detail`` contains a human-readable description of the result, including
+    specific details (e.g. names of non-ready nodes, detected version).
+    ``evidence`` is an optional dictionary with structured data for UI drill-down
+    (e.g. list of namespaces without quota, list of nodes with outdated version).
     """
     passed:   bool
     detail:   str
@@ -103,21 +107,21 @@ class AuditFinding:
 @dataclass
 class AuditRule:
     """
-    Definizione di una regola di compliance.
+    Definition of a compliance rule.
 
     Attributes
     ----------
-    id          : Chiave univoca della regola. Corrisponde a ``rule_id`` nel DB.
-    name        : Nome breve mostrato nella UI.
-    description : Spiegazione dettagliata di cosa verifica e perché.
-    severity    : Impatto del fallimento: ``"critical"``, ``"warning"``, ``"info"``.
-    needs       : Set di chiavi del cluster snapshot necessarie per la valutazione.
-                  Usato dallo scanner per raccogliere solo i dati richiesti
-                  dalle regole attive, evitando chiamate K8s inutili.
-    evaluate    : Funzione di valutazione. Riceve il dizionario completo del
-                  cluster snapshot e restituisce un ``AuditFinding``.
-                  Non deve mai sollevare eccezioni: i casi di dati mancanti
-                  vanno gestiti internamente con un finding appropriato.
+    id          : Unique rule key. Corresponds to ``rule_id`` in the DB.
+    name        : Short name shown in the UI.
+    description : Detailed explanation of what is checked and why.
+    severity    : Impact of failure: ``"critical"``, ``"warning"``, ``"info"``.
+    needs       : Set of cluster snapshot keys required for evaluation.
+                  Used by the scanner to collect only what the active rules
+                  for a given cluster actually need, avoiding unnecessary K8s calls.
+    evaluate    : Evaluation function. Receives the full cluster snapshot dict
+                  and returns an ``AuditFinding``.
+                  Must never raise exceptions: missing data cases should be
+                  handled internally with an appropriate finding.
     """
     id:          str
     name:        str
@@ -128,111 +132,111 @@ class AuditRule:
 
 
 # ---------------------------------------------------------------------------
-# Namespace di sistema — esclusi dalle regole sui namespace utente
+# System namespaces — excluded from user namespace rules
 # ---------------------------------------------------------------------------
 
 _SYSTEM_NAMESPACES = frozenset({
     "kube-system",
     "kube-public",
     "kube-node-lease",
-    "kube-flannel",        # CNI comune in cluster bare-metal
+    "kube-flannel",        # common CNI in bare-metal clusters
     "kube-proxy",
-    "cert-manager",        # spesso considerato infrastruttura
+    "cert-manager",        # typically considered infrastructure
 })
 
-# Versione minima K8s supportata — regola k8s-version-policy
-_MIN_K8S_MINOR = 28   # K8s 1.28 — EOL Ottobre 2024, sotto questa soglia è critico
+# Minimum supported K8s version — used by k8s-version-policy rule
+_MIN_K8S_MINOR = 28   # K8s 1.28 — EOL October 2024, below this threshold is critical
 
 
 # ---------------------------------------------------------------------------
-# Funzioni di valutazione delle regole
+# Rule evaluation functions
 # ---------------------------------------------------------------------------
 
 def _eval_cluster_reachable(cluster: dict) -> AuditFinding:
     """
-    Il cluster deve essere raggiungibile e rispondere alle chiamate API.
-    Un cluster offline non può essere auditato su nessun'altra dimensione.
+    The cluster must be reachable and responding to API calls.
+    An offline cluster cannot be audited on any other dimension.
     """
     if cluster.get("status") == "online":
-        return AuditFinding(passed=True, detail="Cluster raggiungibile e API server responsivo.")
+        return AuditFinding(passed=True, detail="Cluster reachable and API server responsive.")
 
-    error = cluster.get("error") or "Nessun dettaglio disponibile."
+    error = cluster.get("error") or "No details available."
     return AuditFinding(
         passed=False,
-        detail=f"Cluster non raggiungibile: {error}",
+        detail=f"Cluster unreachable: {error}",
         evidence={"error": error, "host": cluster.get("host")},
     )
 
 
 def _eval_all_nodes_ready(cluster: dict) -> AuditFinding:
     """
-    Tutti i nodi del cluster devono essere in stato Ready.
-    Un nodo non Ready indica problemi di risorse, rete o kubelet.
+    All cluster nodes must be in Ready state.
+    A non-Ready node indicates resource, network, or kubelet issues.
     """
     nodes = cluster.get("nodes") or []
     if not nodes:
         return AuditFinding(
             passed=False,
-            detail="Nessun nodo rilevato — impossibile verificare lo stato.",
+            detail="No nodes detected — unable to verify node state.",
         )
 
     not_ready = [n["name"] for n in nodes if n.get("status") != "Ready"]
     if not not_ready:
         return AuditFinding(
             passed=True,
-            detail=f"Tutti i {len(nodes)} nodi sono in stato Ready.",
+            detail=f"All {len(nodes)} nodes are in Ready state.",
             evidence={"total_nodes": len(nodes)},
         )
 
     return AuditFinding(
         passed=False,
-        detail=f"{len(not_ready)} nodo/i non Ready: {', '.join(not_ready)}",
+        detail=f"{len(not_ready)} node(s) not Ready: {', '.join(not_ready)}",
         evidence={"not_ready_nodes": not_ready, "total_nodes": len(nodes)},
     )
 
 
 def _eval_k8s_version_policy(cluster: dict) -> AuditFinding:
     """
-    Tutti i nodi devono eseguire una versione K8s superiore alla soglia minima.
-    Versioni EOL espongono il cluster a vulnerabilità non patchate.
+    All nodes must run a K8s version above the minimum supported threshold.
+    EOL versions do not receive security patches and may be incompatible
+    with updated components (CNI, CSI, admission controllers).
     """
     nodes = cluster.get("nodes") or []
     if not nodes:
-        return AuditFinding(passed=False, detail="Nessun nodo disponibile per verifica versione.")
+        return AuditFinding(passed=False, detail="No nodes available for version check.")
 
     outdated = []
     for node in nodes:
         version_str = node.get("version", "")
-        # Formato atteso: "v1.30.14" → minor = 30
+        # Expected format: "v1.30.14" → minor = 30
         try:
             parts = version_str.lstrip("v").split(".")
             minor = int(parts[1]) if len(parts) >= 2 else 0
             if minor < _MIN_K8S_MINOR:
                 outdated.append({"node": node["name"], "version": version_str})
         except (ValueError, IndexError):
-            # Versione non parsabile — la segnaliamo come warning
+            # Unparseable version — flag as non-compliant
             outdated.append({"node": node["name"], "version": version_str or "unknown"})
 
     if not outdated:
-        # Prendi la versione dal primo nodo come rappresentativa
         sample_version = nodes[0].get("version", "N/A")
         return AuditFinding(
             passed=True,
-            detail=f"Tutti i nodi eseguono K8s >= 1.{_MIN_K8S_MINOR} (rilevato: {sample_version}).",
+            detail=f"All nodes run K8s >= 1.{_MIN_K8S_MINOR} (detected: {sample_version}).",
             evidence={"min_required": f"1.{_MIN_K8S_MINOR}"},
         )
 
     return AuditFinding(
         passed=False,
-        detail=f"{len(outdated)} nodo/i con versione K8s inferiore a 1.{_MIN_K8S_MINOR}.",
+        detail=f"{len(outdated)} node(s) running K8s below 1.{_MIN_K8S_MINOR}.",
         evidence={"outdated_nodes": outdated, "min_required": f"1.{_MIN_K8S_MINOR}"},
     )
 
 
 def _eval_no_failed_pods(cluster: dict) -> AuditFinding:
     """
-    Nessun pod deve trovarsi in stato Failed o assimilabile.
-    Pod in stato Failed indicano errori applicativi o di scheduling non risolti.
+    No pod should be in Failed state.
+    Failed pods indicate unhandled application errors or scheduling issues.
     """
     stats = cluster.get("stats") or {}
     failed = stats.get("pods_failed", 0)
@@ -241,28 +245,28 @@ def _eval_no_failed_pods(cluster: dict) -> AuditFinding:
     if failed == 0:
         return AuditFinding(
             passed=True,
-            detail=f"Nessun pod in stato Failed su {total} pod totali.",
+            detail=f"No pods in Failed state out of {total} total pods.",
             evidence={"pods_total": total, "pods_failed": 0},
         )
 
     return AuditFinding(
         passed=False,
-        detail=f"{failed} pod in stato Failed su {total} totali.",
+        detail=f"{failed} pod(s) in Failed state out of {total} total.",
         evidence={"pods_total": total, "pods_failed": failed},
     )
 
 
 def _eval_pod_health_ratio(cluster: dict) -> AuditFinding:
     """
-    Almeno l'80% dei pod deve essere in stato Running.
-    Un ratio basso indica problemi di stabilità del cluster o delle applicazioni.
+    At least 80% of pods must be in Running state.
+    A low ratio indicates cluster instability or application issues.
     """
     stats   = cluster.get("stats") or {}
     total   = stats.get("pods_total", 0)
     running = stats.get("pods_running", 0)
 
     if total == 0:
-        return AuditFinding(passed=True, detail="Nessun pod presente nel cluster.")
+        return AuditFinding(passed=True, detail="No pods present in the cluster.")
 
     ratio = (running / total) * 100
     threshold = 80.0
@@ -270,52 +274,52 @@ def _eval_pod_health_ratio(cluster: dict) -> AuditFinding:
     if ratio >= threshold:
         return AuditFinding(
             passed=True,
-            detail=f"{running}/{total} pod Running ({ratio:.0f}%) — sopra la soglia dell'{threshold:.0f}%.",
+            detail=f"{running}/{total} pods Running ({ratio:.0f}%) — above the {threshold:.0f}% threshold.",
             evidence={"pods_running": running, "pods_total": total, "ratio_pct": round(ratio, 1)},
         )
 
     return AuditFinding(
         passed=False,
-        detail=f"Solo {running}/{total} pod Running ({ratio:.0f}%) — sotto la soglia dell'{threshold:.0f}%.",
+        detail=f"Only {running}/{total} pods Running ({ratio:.0f}%) — below the {threshold:.0f}% threshold.",
         evidence={"pods_running": running, "pods_total": total, "ratio_pct": round(ratio, 1)},
     )
 
 
 def _eval_user_namespaces_present(cluster: dict) -> AuditFinding:
     """
-    Il cluster deve avere almeno un namespace utente (non di sistema).
-    Un cluster senza namespace utente non ha workload applicativi deployati.
+    The cluster must have at least one user namespace (non-system).
+    A cluster with no user namespaces has no application workloads deployed.
     """
     ns_data = cluster.get("namespaces") or {}
 
     if not ns_data.get("can_list", True):
         return AuditFinding(
             passed=True,
-            detail="Permessi insufficienti per listare i namespace — regola saltata.",
+            detail="Insufficient permissions to list namespaces — rule skipped.",
         )
 
-    items    = ns_data.get("items") or []
-    user_ns  = [ns["name"] for ns in items if ns.get("name") not in _SYSTEM_NAMESPACES]
+    items   = ns_data.get("items") or []
+    user_ns = [ns["name"] for ns in items if ns.get("name") not in _SYSTEM_NAMESPACES]
 
     if user_ns:
         return AuditFinding(
             passed=True,
-            detail=f"{len(user_ns)} namespace utente trovati: {', '.join(user_ns)}.",
+            detail=f"{len(user_ns)} user namespace(s) found: {', '.join(user_ns)}.",
             evidence={"user_namespaces": user_ns},
         )
 
     return AuditFinding(
         passed=False,
-        detail="Nessun namespace utente trovato — solo namespace di sistema presenti.",
+        detail="No user namespaces found — only system namespaces present.",
         evidence={"system_namespaces": [ns["name"] for ns in items]},
     )
 
 
 def _eval_namespace_count_reasonable(cluster: dict) -> AuditFinding:
     """
-    Il numero di namespace utente non deve superare una soglia ragionevole.
-    Un numero eccessivo di namespace può indicare mancanza di governance.
-    La soglia è fissata a 50 namespace utente — configurabile in futuro.
+    The number of user namespaces must not exceed a reasonable threshold.
+    An excessive count may indicate a lack of governance or an inactive cleanup process.
+    The threshold is set to 50 user namespaces — configurable in the future.
     """
     _MAX_USER_NAMESPACES = 50
 
@@ -327,92 +331,95 @@ def _eval_namespace_count_reasonable(cluster: dict) -> AuditFinding:
     if count <= _MAX_USER_NAMESPACES:
         return AuditFinding(
             passed=True,
-            detail=f"{count} namespace utente — entro la soglia di {_MAX_USER_NAMESPACES}.",
+            detail=f"{count} user namespace(s) — within the {_MAX_USER_NAMESPACES} threshold.",
             evidence={"count": count, "threshold": _MAX_USER_NAMESPACES},
         )
 
     return AuditFinding(
         passed=False,
-        detail=f"{count} namespace utente superano la soglia di {_MAX_USER_NAMESPACES}.",
+        detail=f"{count} user namespaces exceed the {_MAX_USER_NAMESPACES} threshold.",
         evidence={"count": count, "threshold": _MAX_USER_NAMESPACES, "namespaces": user_ns},
     )
 
 
 def _eval_control_plane_present(cluster: dict) -> AuditFinding:
     """
-    Deve essere presente almeno un nodo Control Plane nel cluster.
-    Cluster senza Control Plane identificato indicano problemi di configurazione
-    del gateway o di labeling dei nodi.
+    At least one Control Plane node must be present in the cluster.
+    Absence indicates a gateway configuration issue or missing node labels.
     """
-    nodes = cluster.get("nodes") or []
+    nodes    = cluster.get("nodes") or []
     cp_nodes = [n["name"] for n in nodes if n.get("role") == "Control Plane"]
 
     if cp_nodes:
         return AuditFinding(
             passed=True,
-            detail=f"Control Plane identificato: {', '.join(cp_nodes)}.",
+            detail=f"Control Plane identified: {', '.join(cp_nodes)}.",
             evidence={"control_plane_nodes": cp_nodes},
         )
 
     return AuditFinding(
         passed=False,
-        detail="Nessun nodo con ruolo Control Plane rilevato.",
+        detail="No Control Plane node detected.",
         evidence={"total_nodes": len(nodes)},
     )
 
 
 def _eval_worker_nodes_present(cluster: dict) -> AuditFinding:
     """
-    Deve essere presente almeno un nodo Worker.
-    Un cluster con solo Control Plane non può ospitare workload applicativi.
+    At least one Worker node must be present.
+    A cluster with only a Control Plane cannot host application workloads.
     """
-    nodes       = cluster.get("nodes") or []
+    nodes        = cluster.get("nodes") or []
     worker_nodes = [n["name"] for n in nodes if n.get("role") == "Worker"]
 
     if worker_nodes:
         return AuditFinding(
             passed=True,
-            detail=f"{len(worker_nodes)} Worker node/i trovati: {', '.join(worker_nodes)}.",
+            detail=f"{len(worker_nodes)} worker node(s) found: {', '.join(worker_nodes)}.",
             evidence={"worker_nodes": worker_nodes},
         )
 
     return AuditFinding(
         passed=False,
-        detail="Nessun Worker node rilevato — il cluster non può schedulare workload applicativi.",
+        detail="No worker nodes detected — cluster cannot schedule application workloads.",
         evidence={"total_nodes": len(nodes)},
     )
 
 
 def _eval_os_homogeneity(cluster: dict) -> AuditFinding:
     """
-    Tutti i nodi devono eseguire lo stesso OS.
-    Ambienti eterogenei aumentano la complessità operativa e il rischio di
-    comportamenti inconsistenti tra nodi.
+    All nodes must run the same operating system.
+    Heterogeneous environments increase operational complexity and the risk
+    of inconsistent behavior across nodes (syscalls, cgroup versions, kernel features).
     """
     nodes = cluster.get("nodes") or []
     if not nodes:
-        return AuditFinding(passed=False, detail="Nessun nodo disponibile per verifica OS.")
+        return AuditFinding(passed=False, detail="No nodes available for OS check.")
 
     os_set = set(n.get("os", "unknown") for n in nodes)
 
     if len(os_set) == 1:
         return AuditFinding(
             passed=True,
-            detail=f"Tutti i nodi eseguono lo stesso OS: {next(iter(os_set))}.",
+            detail=f"All nodes run the same OS: {next(iter(os_set))}.",
             evidence={"os": next(iter(os_set))},
         )
 
-    # Mappa nodo → OS per l'evidence
     node_os_map = {n["name"]: n.get("os", "unknown") for n in nodes}
     return AuditFinding(
         passed=False,
-        detail=f"OS eterogenei rilevati: {', '.join(sorted(os_set))}.",
+        detail=f"Heterogeneous OS detected: {', '.join(sorted(os_set))}.",
         evidence={"os_distribution": node_os_map},
     )
 
+
 def _eval_node_cpu_pressure(cluster: dict) -> AuditFinding:
-    """Monitora la saturazione della CPU sui nodi."""
-    nodes = cluster.get("nodes") or []
+    """
+    No node should be saturating more than 85% of its CPU capacity.
+    High CPU pressure causes scheduling delays, throttling, and degraded
+    application performance across the entire node.
+    """
+    nodes    = cluster.get("nodes") or []
     stressed = []
     for n in nodes:
         try:
@@ -420,82 +427,265 @@ def _eval_node_cpu_pressure(cluster: dict) -> AuditFinding:
             alloc = int(n.get("cpu_allocatable", "0"))
             if total > 0:
                 usage = ((total - alloc) / total) * 100
-                if usage > 85: stressed.append(f"{n['name']} ({usage:.0f}%)")
-        except: continue
-    return AuditFinding(passed=len(stressed)==0, 
-                        detail="CPU disponibile su tutti i nodi." if not stressed else f"Nodi sotto sforzo CPU (>85%): {', '.join(stressed)}",
-                        evidence={"stressed_nodes": stressed})
+                if usage > 85:
+                    stressed.append(f"{n['name']} ({usage:.0f}%)")
+        except Exception:
+            continue
+
+    if not stressed:
+        return AuditFinding(
+            passed=True,
+            detail="CPU pressure within acceptable limits on all nodes.",
+            evidence={"stressed_nodes": []},
+        )
+
+    return AuditFinding(
+        passed=False,
+        detail=f"Node(s) under high CPU pressure (>85%): {', '.join(stressed)}",
+        evidence={"stressed_nodes": stressed},
+    )
 
 
 def _eval_namespace_quota_presence(cluster: dict) -> AuditFinding:
-    """Verifica se i namespace utente sono protetti da ResourceQuotas."""
+    """
+    Every user namespace should be protected by a ResourceQuota.
+    Namespaces without resource limits are a 'Noisy Neighbor' risk — a single
+    misbehaving workload can exhaust cluster-wide resources and starve other tenants.
+    Requires the scanner to populate 'has_quota' on each namespace item.
+    """
     ns_data = cluster.get("namespaces", {})
     if not ns_data.get("can_list", True):
         return AuditFinding(
             passed=True,
-            detail="Permessi insufficienti per verificare ResourceQuota — regola saltata.",
+            detail="Insufficient permissions to check ResourceQuotas — rule skipped.",
             evidence={"skipped": True, "reason": "namespaces list not allowed"},
         )
-    items = ns_data.get("items", [])
+
+    items   = ns_data.get("items", [])
     user_ns = [ns["name"] for ns in items if ns["name"] not in _SYSTEM_NAMESPACES]
-    # Nota: assume che lo scanner popoli 'has_quota' (puoi aggiungerlo allo scanner k8s)
-    missing = [ns for ns in user_ns if not any(n["name"] == ns and n.get("has_quota") for n in items)]
-    return AuditFinding(passed=len(missing)==0,
-                        detail="Tutti i namespace hanno quote di risorse." if not missing else f"Namespace senza limiti (rischioso): {', '.join(missing)}",
-                        evidence={"missing_quotas": missing})
+    missing = [
+        ns for ns in user_ns
+        if not any(n["name"] == ns and n.get("has_quota") for n in items)
+    ]
+
+    if not missing:
+        return AuditFinding(
+            passed=True,
+            detail="All user namespaces have ResourceQuotas defined.",
+            evidence={"checked_namespaces": user_ns},
+        )
+
+    return AuditFinding(
+        passed=False,
+        detail=f"Namespace(s) without ResourceQuota (risk of resource exhaustion): {', '.join(missing)}",
+        evidence={"missing_quotas": missing},
+    )
+
 
 def _eval_loadbalancer_usage(cluster: dict) -> AuditFinding:
-    """Controlla l'uso di Service LoadBalancer (spesso costosi o limitati)."""
-    stats = cluster.get("stats", {})
+    """
+    The number of LoadBalancer-type Services should not exceed a safe threshold.
+    Each LoadBalancer typically provisions an external IP from a cloud provider
+    or a MetalLB pool — excessive use can exhaust IP allocations and incur unexpected costs.
+    Threshold: 10 LoadBalancer services.
+    """
+    stats    = cluster.get("stats", {})
     lb_count = stats.get("services_lb", 0)
-    limit = 10 
-    return AuditFinding(passed=lb_count <= limit,
-                        detail=f"Uso LoadBalancer sotto controllo ({lb_count})." if lb_count <= limit else f"Eccessivo uso di LoadBalancer ({lb_count}) — rischio costi/IP esauriti.",
-                        evidence={"lb_count": lb_count, "limit": limit})
+    limit    = 10
+
+    if lb_count <= limit:
+        return AuditFinding(
+            passed=True,
+            detail=f"LoadBalancer usage within safe limits ({lb_count}/{limit}).",
+            evidence={"lb_count": lb_count, "limit": limit},
+        )
+
+    return AuditFinding(
+        passed=False,
+        detail=f"Excessive LoadBalancer usage ({lb_count}) — risk of IP pool exhaustion or unexpected costs.",
+        evidence={"lb_count": lb_count, "limit": limit},
+    )
+
 
 def _eval_pending_pods_check(cluster: dict) -> AuditFinding:
-    """Rileva pod in stato Pending (spesso indice di risorse insufficienti)."""
-    stats = cluster.get("stats", {})
+    """
+    No pod should be stuck in Pending state.
+    Pending pods indicate insufficient cluster resources, unsatisfied node affinity
+    rules, missing PersistentVolumes, or unavailable node selectors.
+    """
+    stats   = cluster.get("stats", {})
     pending = stats.get("pods_pending", 0)
-    return AuditFinding(passed=pending == 0,
-                        detail="Nessun pod in attesa di scheduling." if pending == 0 else f"Rilevati {pending} pod in stato Pending. Possibile mancanza di risorse o errori di affinità.",
-                        evidence={"pods_pending": pending})
+
+    if pending == 0:
+        return AuditFinding(
+            passed=True,
+            detail="No pods waiting for scheduling.",
+            evidence={"pods_pending": 0},
+        )
+
+    return AuditFinding(
+        passed=False,
+        detail=f"{pending} pod(s) in Pending state — possible resource shortage or affinity misconfiguration.",
+        evidence={"pods_pending": pending},
+    )
+
 
 def _eval_single_replica_deployments(cluster: dict) -> AuditFinding:
-    """Verifica la presenza di workload critici senza alta affidabilità (HA)."""
-    # Nota: richiede che lo scanner conti i deployment con replicas=1
+    """
+    All Deployments should have more than one replica to ensure high availability.
+    Single-replica workloads experience downtime during rolling updates, node
+    evictions, or pod crashes, with no healthy replica to serve traffic in the meantime.
+    Requires the scanner to populate 'deployments_single_replica' in stats.
+    """
     single_replicas = cluster.get("stats", {}).get("deployments_single_replica", 0)
-    return AuditFinding(passed=single_replicas == 0,
-                        detail="Tutti i workload hanno repliche multiple (HA)." if single_replicas == 0 else f"Rilevati {single_replicas} deployment con singola replica. Rischio downtime durante update.",
-                        evidence={"single_replica_count": single_replicas})
+
+    if single_replicas == 0:
+        return AuditFinding(
+            passed=True,
+            detail="All workloads have multiple replicas (HA).",
+            evidence={"single_replica_count": 0},
+        )
+
+    return AuditFinding(
+        passed=False,
+        detail=f"{single_replicas} deployment(s) with a single replica — risk of downtime during updates or pod restarts.",
+        evidence={"single_replica_count": single_replicas},
+    )
+
 
 def _eval_deprecated_api_usage(cluster: dict) -> AuditFinding:
-    """Controlla se ci sono API deprecate rispetto alla versione del server."""
-    # Semplificato: se la versione è >= 1.29 e ci sono vecchi oggetti
-    ver = cluster.get("server_version", "0.0")
+    """
+    No deprecated or removed Kubernetes API versions should be in use.
+    APIs removed in recent versions (e.g. networking.k8s.io/v1beta1 Ingress removed
+    in 1.22, autoscaling/v2beta2 removed in 1.26) will cause apply failures after
+    a cluster upgrade. Requires the scanner to populate 'deprecated_apis' in stats.
+    """
+    ver     = cluster.get("server_version", "0.0")
     has_old = cluster.get("stats", {}).get("deprecated_apis", False)
-    passed = not (float(ver) >= 1.29 and has_old)
-    return AuditFinding(passed=passed,
-                        detail="Nessuna API deprecata rilevata." if passed else "Rilevato uso di API deprecate (es. Beta Ingress/Autoscaling) incompatibili con K8s 1.29+.")
+
+    try:
+        version_float = float(ver)
+    except (ValueError, TypeError):
+        version_float = 0.0
+
+    passed = not (version_float >= 1.29 and has_old)
+
+    if passed:
+        return AuditFinding(
+            passed=True,
+            detail="No deprecated API usage detected.",
+            evidence={"server_version": ver},
+        )
+
+    return AuditFinding(
+        passed=False,
+        detail=f"Deprecated API usage detected on K8s {ver} — these APIs may be removed in future upgrades.",
+        evidence={"server_version": ver, "deprecated_apis_present": True},
+    )
+
+
+def _eval_node_memory_pressure(cluster: dict) -> AuditFinding:
+    """
+    No node should be consuming more than 90% of its allocatable memory.
+    High memory pressure triggers the OOM killer, evicting pods unpredictably
+    and causing cascading failures across co-located workloads.
+    Threshold: 90% memory utilization per node.
+    """
+    nodes    = cluster.get("nodes") or []
+    stressed = []
+
+    for n in nodes:
+        try:
+            # memory and mem_allocatable are expressed in Ki
+            total = int(n.get("memory", "0"))
+            alloc = int(n.get("mem_allocatable", "0"))
+            if total > 0:
+                usage = ((total - alloc) / total) * 100
+                if usage > 90:
+                    stressed.append(f"{n['name']} ({usage:.0f}%)")
+        except Exception:
+            continue
+
+    if not stressed:
+        return AuditFinding(
+            passed=True,
+            detail="Memory pressure within acceptable limits on all nodes.",
+            evidence={"stressed_nodes": []},
+        )
+
+    return AuditFinding(
+        passed=False,
+        detail=f"Node(s) under high memory pressure (>90%): {', '.join(stressed)}",
+        evidence={"stressed_nodes": stressed},
+    )
+
+
+def _eval_multi_node_cluster(cluster: dict) -> AuditFinding:
+    """
+    A production cluster should have more than one node.
+    Single-node clusters have no fault tolerance: a node failure takes down
+    both the Control Plane and all workloads simultaneously.
+    This rule is informational — single-node setups are valid for development.
+    """
+    nodes      = cluster.get("nodes") or []
+    node_count = len(nodes)
+
+    if node_count > 1:
+        return AuditFinding(
+            passed=True,
+            detail=f"Cluster has {node_count} nodes — fault tolerance available.",
+            evidence={"node_count": node_count},
+        )
+
+    return AuditFinding(
+        passed=False,
+        detail=f"Single-node cluster detected ({node_count} node) — no fault tolerance. Acceptable for dev/lab, not for production.",
+        evidence={"node_count": node_count},
+    )
+
+
+def _eval_default_namespace_usage(cluster: dict) -> AuditFinding:
+    """
+    Workloads should not be deployed in the 'default' namespace.
+    Using 'default' for application workloads bypasses namespace-level RBAC,
+    ResourceQuotas, and NetworkPolicies, making it impossible to scope
+    permissions and resource limits properly.
+    Requires the scanner to populate 'pods_in_default_ns' in stats.
+    """
+    stats           = cluster.get("stats", {})
+    pods_in_default = stats.get("pods_in_default_ns", 0)
+
+    if pods_in_default == 0:
+        return AuditFinding(
+            passed=True,
+            detail="No application pods detected in the 'default' namespace.",
+            evidence={"pods_in_default_ns": 0},
+        )
+
+    return AuditFinding(
+        passed=False,
+        detail=f"{pods_in_default} pod(s) running in the 'default' namespace — workloads should use dedicated namespaces.",
+        evidence={"pods_in_default_ns": pods_in_default},
+    )
 
 
 # ---------------------------------------------------------------------------
-# Registry delle regole
+# Rule registry
 # ---------------------------------------------------------------------------
-# Le regole sono ordinate per severità (critical → warning → info) e poi
-# per categoria logica. L'ordine determina l'ordine di visualizzazione nella UI.
+# Rules are ordered by severity (critical → warning → info) then by logical
+# category. Order determines the display order in the UI.
 
 RULE_REGISTRY: dict[str, AuditRule] = {r.id: r for r in [
 
-    # ── Disponibilità (Critical) ─────────────────────────────────────────
+    # ── Availability (Critical) ──────────────────────────────────────────
 
     AuditRule(
         id="cluster-reachable",
         name="Cluster Reachable",
         description=(
-            "Verifica che il cluster sia raggiungibile e che l'API server risponda. "
-            "Un cluster offline non può essere auditato su nessun'altra dimensione. "
-            "Cause comuni: rete non disponibile, VPN non connessa, cluster spento."
+            "Verifies that the cluster is reachable and the API server is responding. "
+            "An offline cluster cannot be audited on any other dimension. "
+            "Common causes: network unavailable, VPN disconnected, cluster powered off."
         ),
         severity="critical",
         needs={"status", "error"},
@@ -506,9 +696,9 @@ RULE_REGISTRY: dict[str, AuditRule] = {r.id: r for r in [
         id="all-nodes-ready",
         name="All Nodes Ready",
         description=(
-            "Tutti i nodi del cluster devono essere in stato Ready. "
-            "Un nodo NotReady indica problemi al kubelet, alla rete o alle risorse "
-            "del nodo stesso (memoria, disco, CPU pressure)."
+            "All cluster nodes must be in Ready state. "
+            "A NotReady node indicates kubelet, network, or resource issues "
+            "(memory pressure, disk pressure, CPU pressure)."
         ),
         severity="critical",
         needs={"nodes"},
@@ -519,24 +709,37 @@ RULE_REGISTRY: dict[str, AuditRule] = {r.id: r for r in [
         id="control-plane-present",
         name="Control Plane Node Present",
         description=(
-            "Deve essere identificabile almeno un nodo Control Plane. "
-            "L'assenza indica un problema di labeling dei nodi o di configurazione "
-            "del profilo admin usato dallo scanner."
+            "At least one Control Plane node must be identifiable. "
+            "Absence indicates a node labeling issue or a misconfigured "
+            "admin profile used by the scanner."
         ),
         severity="critical",
         needs={"nodes"},
         evaluate=_eval_control_plane_present,
     ),
 
-    # ── Workload (Warning) ───────────────────────────────────────────────
+    AuditRule(
+        id="pending-pods-check",
+        name="No Pending Pods",
+        description=(
+            "No pod should be stuck in Pending state. "
+            "Pending pods indicate insufficient cluster resources, unsatisfied "
+            "node affinity rules, missing PersistentVolumes, or unavailable node selectors."
+        ),
+        severity="critical",
+        needs={"stats"},
+        evaluate=_eval_pending_pods_check,
+    ),
+
+    # ── Workloads (Warning) ──────────────────────────────────────────────
 
     AuditRule(
         id="no-failed-pods",
         name="No Failed Pods",
         description=(
-            "Nessun pod deve trovarsi in stato Failed. "
-            "Pod in stato Failed indicano errori applicativi non gestiti, "
-            "problemi di scheduling o risorse insufficienti."
+            "No pod should be in Failed state. "
+            "Failed pods indicate unhandled application errors, scheduling failures, "
+            "or insufficient resources."
         ),
         severity="warning",
         needs={"stats"},
@@ -547,9 +750,8 @@ RULE_REGISTRY: dict[str, AuditRule] = {r.id: r for r in [
         id="pod-health-ratio",
         name="Pod Health Ratio ≥ 80%",
         description=(
-            "Almeno l'80% dei pod deve essere in stato Running. "
-            "Un ratio inferiore indica instabilità delle applicazioni "
-            "o problemi di risorse nel cluster."
+            "At least 80% of pods must be in Running state. "
+            "A lower ratio indicates application instability or cluster resource issues."
         ),
         severity="warning",
         needs={"stats"},
@@ -560,13 +762,77 @@ RULE_REGISTRY: dict[str, AuditRule] = {r.id: r for r in [
         id="worker-nodes-present",
         name="Worker Nodes Present",
         description=(
-            "Il cluster deve avere almeno un Worker node. "
-            "Un cluster con solo Control Plane non può ospitare workload applicativi "
-            "in configurazioni standard."
+            "The cluster must have at least one Worker node. "
+            "A cluster with only a Control Plane cannot host application workloads "
+            "in standard configurations."
         ),
         severity="warning",
         needs={"nodes"},
         evaluate=_eval_worker_nodes_present,
+    ),
+
+    AuditRule(
+        id="ha-workload-policy",
+        name="High Availability Deployments",
+        description=(
+            "All Deployments should have more than one replica to ensure high availability. "
+            "Single-replica workloads experience downtime during rolling updates, "
+            "node evictions, or pod crashes."
+        ),
+        severity="warning",
+        needs={"stats"},
+        evaluate=_eval_single_replica_deployments,
+    ),
+
+    AuditRule(
+        id="node-cpu-pressure",
+        name="Node CPU Pressure < 85%",
+        description=(
+            "No node should be saturating more than 85% of its CPU capacity. "
+            "High CPU pressure causes scheduling delays, throttling, and degraded "
+            "application performance across the entire node."
+        ),
+        severity="warning",
+        needs={"nodes"},
+        evaluate=_eval_node_cpu_pressure,
+    ),
+
+    AuditRule(
+        id="node-memory-pressure",
+        name="Node Memory Pressure < 90%",
+        description=(
+            "No node should be consuming more than 90% of its allocatable memory. "
+            "High memory pressure triggers the OOM killer, evicting pods unpredictably "
+            "and causing cascading failures across co-located workloads."
+        ),
+        severity="warning",
+        needs={"nodes"},
+        evaluate=_eval_node_memory_pressure,
+    ),
+
+    AuditRule(
+        id="namespace-quota-presence",
+        name="Namespace Resource Quotas",
+        description=(
+            "Every user namespace should be protected by a ResourceQuota. "
+            "Namespaces without resource limits are a 'Noisy Neighbor' risk — "
+            "a single misbehaving workload can exhaust cluster-wide resources."
+        ),
+        severity="warning",
+        needs={"namespaces"},
+        evaluate=_eval_namespace_quota_presence,
+    ),
+
+    AuditRule(
+        id="deprecated-api-check",
+        name="Modern API Compliance",
+        description=(
+            "No deprecated or removed Kubernetes API versions should be in use. "
+            "APIs removed in recent versions will cause apply failures after a cluster upgrade."
+        ),
+        severity="warning",
+        needs={"server_version", "stats"},
+        evaluate=_eval_deprecated_api_usage,
     ),
 
     # ── Versioning (Warning) ─────────────────────────────────────────────
@@ -575,9 +841,9 @@ RULE_REGISTRY: dict[str, AuditRule] = {r.id: r for r in [
         id="k8s-version-policy",
         name=f"K8s Version ≥ 1.{_MIN_K8S_MINOR}",
         description=(
-            f"Tutti i nodi devono eseguire Kubernetes >= 1.{_MIN_K8S_MINOR}. "
-            "Versioni EOL non ricevono patch di sicurezza e potrebbero essere "
-            "incompatibili con componenti aggiornati (CNI, CSI, admission controllers)."
+            f"All nodes must run Kubernetes >= 1.{_MIN_K8S_MINOR}. "
+            "EOL versions do not receive security patches and may be incompatible "
+            "with updated components (CNI, CSI, admission controllers)."
         ),
         severity="warning",
         needs={"nodes"},
@@ -588,9 +854,9 @@ RULE_REGISTRY: dict[str, AuditRule] = {r.id: r for r in [
         id="os-homogeneity",
         name="Homogeneous Node OS",
         description=(
-            "Tutti i nodi devono eseguire lo stesso sistema operativo. "
-            "Ambienti eterogenei aumentano la complessità operativa e il rischio "
-            "di comportamenti inconsistenti (syscall, cgroup versioni, kernel features)."
+            "All nodes must run the same operating system. "
+            "Heterogeneous environments increase operational complexity and the risk "
+            "of inconsistent behavior (syscalls, cgroup versions, kernel features)."
         ),
         severity="warning",
         needs={"nodes"},
@@ -603,9 +869,9 @@ RULE_REGISTRY: dict[str, AuditRule] = {r.id: r for r in [
         id="user-namespaces-present",
         name="User Namespaces Present",
         description=(
-            "Il cluster deve avere almeno un namespace non di sistema. "
-            "Un cluster senza namespace utente non ha workload applicativi deployati "
-            "e potrebbe indicare un cluster non ancora configurato."
+            "The cluster must have at least one non-system namespace. "
+            "A cluster without user namespaces has no application workloads deployed "
+            "and may indicate an unconfigured cluster."
         ),
         severity="info",
         needs={"namespaces"},
@@ -616,88 +882,72 @@ RULE_REGISTRY: dict[str, AuditRule] = {r.id: r for r in [
         id="namespace-count-reasonable",
         name="Namespace Count ≤ 50",
         description=(
-            "Il numero di namespace utente non deve superare 50. "
-            "Un numero eccessivo può indicare mancanza di governance o "
-            "un processo di cleanup non attivo."
+            "The number of user namespaces must not exceed 50. "
+            "An excessive count may indicate a lack of governance or "
+            "an inactive cleanup process."
         ),
         severity="info",
         needs={"namespaces"},
         evaluate=_eval_namespace_count_reasonable,
     ),
 
-    # ── Nuove Regole Observer (Monitoring & Cost) ────────────────────────
-
-    AuditRule(
-        id="node-cpu-pressure",
-        name="Node CPU Pressure < 85%",
-        description="Monitora se i nodi stanno saturando la capacità di calcolo.",
-        severity="warning",
-        needs={"nodes"},
-        evaluate=_eval_node_cpu_pressure,
-    ),
-
-    AuditRule(
-        id="pending-pods-check",
-        name="No Pending Pods",
-        description="Rileva pod che non riescono a essere schedulati sui nodi.",
-        severity="critical",
-        needs={"stats"},
-        evaluate=_eval_pending_pods_check,
-    ),
-
-    AuditRule(
-        id="namespace-quota-presence",
-        name="Namespace Resource Quotas",
-        description="Assicura che ogni namespace utente abbia limiti di risorse per evitare 'Noisy Neighbor'.",
-        severity="warning",
-        needs={"namespaces"},
-        evaluate=_eval_namespace_quota_presence,
-    ),
-
     AuditRule(
         id="loadbalancer-limit",
         name="LoadBalancer Usage Control",
-        description="Monitora il numero di servizi di tipo LoadBalancer per controllo costi e risorse cloud.",
+        description=(
+            "The number of LoadBalancer-type Services should not exceed 10. "
+            "Each LoadBalancer typically provisions an external IP — excessive use "
+            "can exhaust IP pool allocations and incur unexpected infrastructure costs."
+        ),
         severity="info",
         needs={"stats"},
         evaluate=_eval_loadbalancer_usage,
     ),
 
     AuditRule(
-        id="ha-workload-policy",
-        name="High Availability Deployment",
-        description="Verifica che i deployment abbiano più di una replica per garantire la continuità del servizio.",
+        id="multi-node-cluster",
+        name="Multi-Node Cluster",
+        description=(
+            "A production cluster should have more than one node. "
+            "Single-node clusters have no fault tolerance: a node failure takes down "
+            "both the Control Plane and all workloads simultaneously. "
+            "Acceptable for development and lab environments."
+        ),
         severity="info",
-        needs={"stats"},
-        evaluate=_eval_single_replica_deployments,
+        needs={"nodes"},
+        evaluate=_eval_multi_node_cluster,
     ),
 
     AuditRule(
-        id="deprecated-api-check",
-        name="Modern API Compliance",
-        description="Rileva l'uso di API Kubernetes deprecate o rimosse nelle versioni recenti.",
-        severity="warning",
-        needs={"server_version", "stats"},
-        evaluate=_eval_deprecated_api_usage,
+        id="default-namespace-usage",
+        name="No Workloads in Default Namespace",
+        description=(
+            "Application workloads should not be deployed in the 'default' namespace. "
+            "Using 'default' bypasses namespace-level RBAC, ResourceQuotas, and "
+            "NetworkPolicies, making it impossible to scope permissions and resource limits properly."
+        ),
+        severity="info",
+        needs={"stats"},
+        evaluate=_eval_default_namespace_usage,
     ),
 
 ]}
 
 
 # ---------------------------------------------------------------------------
-# Funzioni pubbliche
+# Public functions
 # ---------------------------------------------------------------------------
 
 def get_all_rules() -> list[dict]:
     """
-    Restituisce la lista di tutte le regole disponibili nel registry.
-    Usata dagli endpoint admin per mostrare le regole configurabili.
+    Returns the list of all rules available in the registry.
+    Used by admin endpoints to display configurable rules in the UI.
 
     Returns
     -------
     list[dict]
-        Lista di dizionari con id, name, description, severity.
-        Non include la funzione evaluate (non serializzabile in JSON).
+        List of dicts with id, name, description, severity, needs.
+        Does not include the evaluate function (not JSON-serializable).
     """
     return [
         {
@@ -713,56 +963,54 @@ def get_all_rules() -> list[dict]:
 
 def get_active_rules_for_cluster(cluster_id: str) -> list[AuditRule]:
     """
-    Restituisce le regole attive per un cluster, tenendo conto della
-    configurazione nel DB (logica default-on).
+    Returns the active rules for a cluster, respecting the DB configuration
+    (default-on logic).
 
-    Algoritmo:
-    1. Legge tutti i record ``AuditRuleConfig`` per questo cluster.
-    2. Per ogni regola nel registry:
-       - Se esiste un record con ``enabled=False`` → regola disabilitata.
-       - Altrimenti (record assente o ``enabled=True``) → regola attiva.
+    Algorithm:
+    1. Read all ``AuditRuleConfig`` records for this cluster.
+    2. For each rule in the registry:
+       - If a record with ``enabled=False`` exists → rule is disabled.
+       - Otherwise (record absent or ``enabled=True``) → rule is active.
 
     Parameters
     ----------
     cluster_id : str
-        ID del cluster (es. "K3S").
+        Cluster ID (e.g. "PROD-1").
 
     Returns
     -------
     list[AuditRule]
-        Lista delle regole da eseguire su questo cluster.
+        List of rules to execute against this cluster.
     """
     db = SessionLocal()
     try:
         configs = db.query(AuditRuleConfig).filter(
             AuditRuleConfig.cluster_id == cluster_id
         ).all()
-        # Costruisce mappa rule_id → enabled
         config_map: dict[str, bool] = {c.rule_id: c.enabled for c in configs}
     finally:
         db.close()
 
     return [
         rule for rule in RULE_REGISTRY.values()
-        # default-on: se non c'è config, la regola è abilitata
-        if config_map.get(rule.id, True)
+        if config_map.get(rule.id, True)  # default-on: enabled if no config present
     ]
 
 
 def get_rule_config_for_cluster(cluster_id: str) -> list[dict]:
     """
-    Restituisce la configurazione completa di tutte le regole per un cluster,
-    includendo sia le regole con config esplicita nel DB sia quelle con default.
+    Returns the full configuration of all rules for a cluster,
+    including both explicitly configured rules and default-on rules.
 
-    Usata dall'endpoint ``GET /admin/audit/rules/{cluster_id}`` per mostrare
-    nella UI lo stato di ogni regola con il toggle abilitato/disabilitato.
+    Used by ``GET /admin/audit/rules/{cluster_id}`` to render the
+    enable/disable toggles in the Admin Console.
 
     Returns
     -------
     list[dict]
-        Lista di dizionari con id, name, description, severity, enabled, note.
-        ``enabled`` riflette la config DB o il default (True) se assente.
-        ``note`` è None se non è stata impostata una nota dall'admin.
+        List of dicts with id, name, description, severity, enabled, note.
+        ``enabled`` reflects the DB config or the default (True) if absent.
+        ``note`` is None if no admin note has been set.
     """
     db = SessionLocal()
     try:
@@ -781,8 +1029,7 @@ def get_rule_config_for_cluster(cluster_id: str) -> list[dict]:
             "name":        rule.name,
             "description": rule.description,
             "severity":    rule.severity,
-            # default-on: True se non c'è config esplicita
-            "enabled":     db_config.enabled if db_config else True,
+            "enabled":     db_config.enabled if db_config else True,  # default-on
             "note":        db_config.note    if db_config else None,
         })
     return result
@@ -790,41 +1037,40 @@ def get_rule_config_for_cluster(cluster_id: str) -> list[dict]:
 
 def set_rule_config(cluster_id: str, rule_id: str, enabled: bool, note: str | None = None) -> dict:
     """
-    Abilita o disabilita una regola per un cluster specifico (upsert).
+    Enables or disables a rule for a specific cluster (upsert).
 
-    Se esiste già un record per (cluster_id, rule_id) lo aggiorna.
-    Se non esiste lo crea. Usa merge di SQLAlchemy per l'upsert.
+    Updates the existing record if one exists for (cluster_id, rule_id),
+    otherwise creates it.
 
     Parameters
     ----------
     cluster_id : str
-        ID del cluster target.
+        Target cluster ID.
     rule_id : str
-        ID della regola da configurare. Deve esistere nel ``RULE_REGISTRY``.
+        Rule ID to configure. Must exist in ``RULE_REGISTRY``.
     enabled : bool
-        True per abilitare, False per disabilitare.
+        True to enable, False to disable.
     note : str | None
-        Motivazione opzionale (es. "cluster di sviluppo").
+        Optional admin note (e.g. "development cluster — HA not required").
 
     Returns
     -------
     dict
-        Configurazione aggiornata con cluster_id, rule_id, enabled, note.
+        Updated configuration with cluster_id, rule_id, enabled, note.
 
     Raises
     ------
     ValueError
-        Se ``rule_id`` non esiste nel registry.
+        If ``rule_id`` does not exist in the registry.
     """
     if rule_id not in RULE_REGISTRY:
         raise ValueError(
-            f"Regola '{rule_id}' non trovata nel registry. "
-            f"Regole disponibili: {', '.join(RULE_REGISTRY.keys())}"
+            f"Rule '{rule_id}' not found in registry. "
+            f"Available rules: {', '.join(RULE_REGISTRY.keys())}"
         )
 
     db = SessionLocal()
     try:
-        # Cerca record esistente
         config = db.query(AuditRuleConfig).filter(
             AuditRuleConfig.cluster_id == cluster_id,
             AuditRuleConfig.rule_id    == rule_id,
@@ -857,35 +1103,35 @@ def set_rule_config(cluster_id: str, rule_id: str, enabled: bool, note: str | No
 
 def run_audit(fleet_data: list[dict], respect_config: bool = True) -> list[dict]:
     """
-    Esegue le audit rules su tutti i cluster della fleet.
+    Runs all audit rules against every cluster in the fleet.
 
-    Per ogni cluster recupera le regole attive (rispettando la configurazione
-    nel DB se ``respect_config=True``) ed esegue ogni regola, raccogliendo
-    i finding. I cluster offline ricevono solo la regola ``cluster-reachable``
-    per evitare falsi negativi su regole che richiedono dati non disponibili.
+    For each cluster, retrieves the active rules (respecting DB configuration
+    if ``respect_config=True``) and evaluates each rule, collecting findings.
+    Offline clusters receive only the ``cluster-reachable`` rule to avoid
+    false negatives on rules that require data not available when a cluster is down.
 
     Parameters
     ----------
     fleet_data : list[dict]
-        Lista di snapshot cluster prodotti da ``scan_all_clusters()``.
+        List of cluster snapshots produced by ``scan_all_clusters()``.
     respect_config : bool
-        Se True (default), usa ``get_active_rules_for_cluster()`` per filtrare
-        le regole in base alla configurazione DB.
-        Se False, esegue tutte le regole su tutti i cluster (utile per test).
+        If True (default), uses ``get_active_rules_for_cluster()`` to filter
+        rules based on the DB configuration.
+        If False, runs all rules against all clusters (useful for testing).
 
     Returns
     -------
     list[dict]
-        Lista di risultati per cluster::
+        List of per-cluster results::
 
             [
                 {
                     "cluster_id":   str,
                     "cluster_name": str,
                     "status":       str,
-                    "score":        int,   # regole passate
-                    "total":        int,   # regole valutate
-                    "score_pct":    float, # percentuale di compliance
+                    "score":        int,   # rules passed
+                    "total":        int,   # rules evaluated
+                    "score_pct":    float, # compliance percentage
                     "findings": [
                         {
                             "rule_id":   str,
@@ -905,14 +1151,13 @@ def run_audit(fleet_data: list[dict], respect_config: bool = True) -> list[dict]
         cluster_id = cluster["cluster_id"]
         is_offline = cluster.get("status") == "offline"
 
-        # Determina le regole da eseguire
         if respect_config:
             active_rules = get_active_rules_for_cluster(cluster_id)
         else:
             active_rules = list(RULE_REGISTRY.values())
 
-        # Cluster offline: esegui solo la regola di raggiungibilità
-        # per evitare falsi negativi ("no nodes" quando il cluster è spento)
+        # Offline cluster: run only the reachability rule to avoid false negatives
+        # (e.g. "no nodes found" when the cluster is simply powered off)
         if is_offline:
             reachable_rule = RULE_REGISTRY.get("cluster-reachable")
             active_rules   = [reachable_rule] if reachable_rule else []
@@ -922,11 +1167,10 @@ def run_audit(fleet_data: list[dict], respect_config: bool = True) -> list[dict]
             try:
                 finding = rule.evaluate(cluster)
             except Exception as exc:
-                # La funzione evaluate non dovrebbe mai sollevare,
-                # ma gestiamo il caso in modo difensivo.
+                # evaluate() should never raise, but handle defensively
                 finding = AuditFinding(
                     passed=False,
-                    detail=f"Errore interno durante la valutazione: {exc}",
+                    detail=f"Internal error during rule evaluation: {exc}",
                 )
 
             findings.append({

@@ -506,6 +506,36 @@ class CoreManager:
             context = f"List Deployments in '{namespace or 'All Namespaces'}'"
             self._handle_exception(e, context)
 
+    def list_ingresses_fleet(self, namespace: str = None, **kwargs):
+        """
+        Versione estesa di list_ingress che supporta la scansione cluster-wide.
+        Necessario per l'audit engine (es. regola certificate-expiry o ingress-security).
+        """
+        try:
+            if namespace:
+                # Recupera ingress in un namespace specifico
+                ingresses = self.networking_v1.list_namespaced_ingress(namespace=namespace, **kwargs)
+            else:
+                # Recupera ingress in tutto il cluster (cluster-wide)
+                ingresses = self.networking_v1.list_ingress_for_all_namespaces(**kwargs)
+            
+            return [
+                {
+                    "name": i.metadata.name,
+                    "namespace": i.metadata.namespace,
+                    "class_name": i.spec.ingress_class_name,
+                    # Estraiamo gli host configurati nelle regole
+                    "hosts": [rule.host for rule in i.spec.rules if rule.host] if i.spec.rules else [],
+                    # Estraiamo i segreti TLS per l'expiry observer
+                    "tls_secrets": [t.secret_name for t in i.spec.tls if t.secret_name] if i.spec.tls else [],
+                    "labels": i.metadata.labels,
+                    "resource_version": i.metadata.resource_version
+                } for i in ingresses.items
+            ]
+        except Exception as e:
+            context = f"List Ingress in '{namespace or 'All Namespaces'}'"
+            self._handle_exception(e, context)
+
     # --- UNIVERSAL APPLY ---
 
     def apply_universal_yaml(self, yaml_content):
