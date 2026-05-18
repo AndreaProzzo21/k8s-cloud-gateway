@@ -1,5 +1,3 @@
-# app/api/dependencies/get_admin_key.py
-
 import os
 from fastapi import HTTPException, Security, status
 from fastapi.security import APIKeyHeader

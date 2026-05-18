@@ -53,7 +53,7 @@ async def get_cluster_credentials(request: Request) -> ClusterCredentials:
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Token non valido o scaduto: {exc}",
+            detail=f"Token not valid or expired: {exc}",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -64,7 +64,7 @@ async def get_cluster_credentials(request: Request) -> ClusterCredentials:
     if not all([cluster_id, cluster_host, profile]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Payload JWT incompleto: cluster_id, cluster_host o profile mancanti.",
+            detail="Incomplete JWT: Missing cluster_id, cluster_host or profile.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -77,7 +77,7 @@ async def get_cluster_credentials(request: Request) -> ClusterCredentials:
         if cluster is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Cluster '{cluster_id}' non trovato nel registro.",
+                detail=f"Cluster '{cluster_id}' not found in the registry.",
             )
 
         ca_cert: str | None = cluster.ca_cert
@@ -90,7 +90,7 @@ async def get_cluster_credentials(request: Request) -> ClusterCredentials:
         if profile_record is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Profilo '{profile}' non trovato per il cluster '{cluster_id}'.",
+                detail=f"Record '{profile}' not found in cluster '{cluster_id}'.",
             )
 
         k8s_token: str | None = profile_record.k8s_token
@@ -101,13 +101,13 @@ async def get_cluster_credentials(request: Request) -> ClusterCredentials:
     if not ca_cert:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"CA Certificate mancante per il cluster '{cluster_id}'.",
+            detail=f"Missing CA Certificate for cluster '{cluster_id}'.",
         )
 
     if not k8s_token:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"k8s_token mancante per il profilo '{profile}' del cluster '{cluster_id}'.",
+            detail=f"Missing k8s_token for profile '{profile}' of cluster '{cluster_id}'.",
         )
 
     return ClusterCredentials(
