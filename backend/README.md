@@ -63,6 +63,8 @@ app.include_router(admin_router, prefix="/api/v1/admin/audit", tags=["audit"])
 
 All K8s and Helm routes go through FastAPI's dependency injection system. No middleware intercepts requests globally — authentication is enforced per-route via `Depends`.
 
+Swagger UI and the OpenAPI schema endpoint are disabled at application level (`docs_url=None`, `redoc_url=None`, `openapi_url=None`). API documentation is published separately on GitHub Pages.
+
 ---
 
 ## 3. Database Model
@@ -119,7 +121,7 @@ app/infrastructure/
 
 ```
 app/api/auth/
-├── auth_routes.py    ← POST /auth/login
+├── auth_routes.py    ← POST /auth/login, POST /auth/logout
 └── auth_handler.py   ← create_access_token(), decode_access_token()
 ```
 
@@ -127,26 +129,51 @@ app/api/auth/
 
 ```mermaid
 sequenceDiagram
+    autonumber
     actor User
-    participant Route as POST /auth/login
+    participant Route as API: /auth/login
     participant DB as Database
-    participant JWT as auth_handler
+    participant JWT as Auth Handler
 
-    User->>Route: {cluster_id, profile, password}
-    Route->>DB: query ProfileModel<br/>WHERE cluster_id = X AND name = Y
-    DB-->>Route: profile record
+    User->>Route: POST {cluster_id, profile, password}
+    Route->>DB: Get Profile (cluster_id, name)
+    DB-->>Route: Profile record
 
-    alt profile not found
-        Route-->>User: HTTP 401 Unauthorized
-    else password mismatch
-        Route-->>User: HTTP 401 Unauthorized
-    else credentials valid
-        Route->>DB: query ClusterModel<br/>WHERE id = cluster_id
-        DB-->>Route: cluster record (host)
-        Route->>JWT: issue_token(cluster_id, cluster_host, profile)
-        JWT-->>Route: signed JWT
-        Route-->>User: {access_token, token_type: "bearer"}
+    alt Profile not found
+        Route-->>User: HTTP 401 (Unauthorized)
+    else Password mismatch
+        Route-->>User: HTTP 401 (Unauthorized)
+    else Credentials valid
+        Route->>DB: Get Cluster (id = cluster_id)
+        DB-->>Route: Cluster record (host)
+        
+        Route->>JWT: create_access_token(cluster_id, host, profile)
+        JWT-->>Route: Signed JWT
+        
+        Note over Route,User: Set-Cookie: k8s_jwt=JWT (HttpOnly)
+        Route-->>User: HTTP 200 {token_type, expires_in}
     end
+```
+
+### Logout Flow
+
+`POST /auth/logout` requires no authentication — it unconditionally instructs the browser to expire the session cookie:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Route as API: /auth/logout
+
+    Note over User,Route: User clicks Logout
+    User->>Route: POST /auth/logout (Cookie attached)
+    
+    Note right of Route: Server invalidates session
+    
+    Note over Route,User: Set-Cookie: k8s_jwt=EMPTY, Max-Age=0, Path=/
+    Route-->>User: HTTP 200 OK (Cookie Expired)
+    
+    Note over User: Browser deletes the cookie
 ```
 
 ### JWT Structure
@@ -159,15 +186,18 @@ The token is signed with `HS256` using `JWT_SECRET_KEY`. It contains:
   "cluster_host": "https://10.0.0.1:6443",
   "profile":      "dev",
   "jti":          "uuid4",
+  "iat":          1234567890,
   "exp":          1234567890
 }
 ```
 
 **What is deliberately absent:** `k8s_token`, `ca_cert`, `gateway_password`. The JWT payload is base64-encoded, not encrypted — anyone holding the token can decode the payload. Excluding Kubernetes credentials from the payload is therefore a hard security requirement, not an optimisation.
 
+**Transport:** the JWT is never returned in the response body. It is delivered exclusively as an `HttpOnly` cookie, making it inaccessible to JavaScript — including any injected malicious scripts. See [Section 15](#15-security-design-decisions) for the rationale.
+
 ### Token Expiry & Revocation
 
-Tokens expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (default: 60 minutes). There is no refresh token mechanism — users re-authenticate at expiry.
+Tokens expire after `JWT_EXPIRE_HOURS` (default: 1 hour). There is no refresh token mechanism — users re-authenticate at expiry.
 
 Immediate revocation without token expiry is possible by rotating the `k8s_token` in the database. On the next request, the gateway will fetch the new (or invalidated) token from the DB and the K8s API server will reject it, effectively revoking access even for a still-valid JWT.
 
@@ -182,27 +212,37 @@ app/api/dependencies/
 └── get_helm_manager.py         ← Helm dependency
 ```
 
-Every protected route — both K8s and Helm — resolves credentials through a common pipeline. This ensures a single source of truth for JWT validation and database access, with no duplication between the two route families.
+Every protected route — both K8s and Helm — resolves credentials through a common pipeline. This ensures a single source of truth for JWT extraction, validation, and database access, with no duplication between the two route families.
 
 ```mermaid
 graph TD
-    A["Incoming Request<br/>Authorization: Bearer JWT"] --> B["get_cluster_credentials()"]
-    B --> C["1. Decode & validate JWT<br/>auth_handler.decode_access_token()"]
+    A["Incoming Request<br/>Cookie: k8s_jwt=JWT"] --> B["get_cluster_credentials()"]
+    B --> B1["_extract_token(request)<br/>1. read cookie k8s_jwt<br/>2. fallback: Authorization: Bearer"]
+    B1 --> C["decode & validate JWT<br/>auth_handler.decode_access_token()"]
     C --> D{"JWT valid?"}
     D -->|No| E["HTTP 401"]
-    D -->|Yes| F["2. Extract cluster_id + profile"]
-    F --> G["3. DB query — ClusterModel<br/>fetch ca_cert"]
+    D -->|Yes| F["Extract cluster_id + profile"]
+    F --> G["DB query — ClusterModel<br/>fetch ca_cert"]
     G --> H{"Cluster exists?"}
     H -->|No| I["HTTP 404"]
-    H -->|Yes| J["4. DB query — ProfileModel<br/>fetch k8s_token"]
+    H -->|Yes| J["DB query — ProfileModel<br/>fetch k8s_token"]
     J --> K{"Profile exists?"}
     K -->|No| L["HTTP 404"]
-    K -->|Yes| M["5. Validate ca_cert + k8s_token<br/>not None or empty"]
+    K -->|Yes| M["Validate ca_cert + k8s_token<br/>not None or empty"]
     M -->|Invalid| N["HTTP 503"]
     M -->|Valid| O["ClusterCredentials dataclass<br/>(frozen, immutable)"]
-    O --> P["get_current_core_manager()"]
+    O --> P["get_core_manager()"]
     O --> Q["get_helm_manager()"]
 ```
+
+### Token Extraction Strategy
+
+`_extract_token(request)` reads the JWT from two sources in priority order:
+
+1. **`HttpOnly` cookie `k8s_jwt`** — used by browser clients. The cookie is attached automatically by the browser; no JavaScript involvement.
+2. **`Authorization: Bearer` header** — fallback for programmatic clients (curl, CI pipelines, API testing tools).
+
+This means browser sessions are fully protected from XSS token theft, while non-browser integrations continue to work without modification.
 
 ### `ClusterCredentials` dataclass
 
@@ -353,10 +393,11 @@ sequenceDiagram
     participant CM as CoreManager
     participant K8s as K8s API Server
 
-    User->>Route: GET /api/v1/namespaces/testing/pods<br/>Bearer JWT
+    User->>Route: GET /api/v1/namespaces/testing/pods<br/>Cookie: k8s_jwt=JWT (automatic)
     Route->>Dep: Depends(get_current_core_manager)
     Dep->>Creds: Depends(get_cluster_credentials)
-    Creds->>Creds: decode JWT
+    Creds->>Creds: _extract_token() → read cookie k8s_jwt
+    Creds->>Creds: decode & validate JWT
     Creds->>DB: fetch ca_cert + k8s_token
     DB-->>Creds: ClusterCredentials
     Creds-->>Dep: ClusterCredentials
@@ -514,7 +555,7 @@ sequenceDiagram
     participant HM as HelmManager
     participant Helm as helm binary
 
-    User->>Route: POST /helm/namespaces/testing/releases/my-app/from-zip<br/>Bearer JWT + ZIP file
+    User->>Route: POST /helm/namespaces/testing/releases/my-app/from-zip<br/>Cookie: k8s_jwt=JWT + ZIP file
     Route->>Dep: Depends(get_helm_manager)
     Dep->>Creds: Depends(get_cluster_credentials)
     Creds->>DB: fetch ca_cert + k8s_token
@@ -586,7 +627,7 @@ Helm operations are `async` (via `asyncio.create_subprocess_exec`) and do not bl
 | 20 simultaneous requests (pool full) | 21st request waits for a free thread |
 | Cluster A offline, request to cluster B | Thread for A is blocked but B proceeds normally |
 | Helm `--wait` on cluster A (300s timeout) | Subprocess waits, event loop free, other requests unaffected |
-| JWT invalid | Rejected in dependency before any thread is allocated |
+| JWT invalid / cookie absent | Rejected in dependency before any thread is allocated |
 
 ---
 
@@ -780,11 +821,21 @@ This is used by the Admin Console frontend to populate the summary cards at the 
 
 ## 15. Security Design Decisions
 
+### Why HttpOnly cookie instead of localStorage for JWT storage?
+
+`localStorage` is accessible by any JavaScript running on the page — including scripts injected via XSS. An attacker who finds an XSS vector can exfiltrate the token with a single `localStorage.getItem('k8s_jwt')` call and replay it from any origin.
+
+An `HttpOnly` cookie is invisible to JavaScript entirely — `document.cookie` does not include it, and there is no API to read it from JS. The browser attaches it automatically to same-origin requests. An XSS attack can still manipulate the DOM or make authenticated requests within the current session, but it cannot steal the token itself to use it from a different context.
+
+`SameSite=Lax` provides an additional layer: the cookie is not sent on cross-site requests initiated by third-party pages (e.g. a `<form>` on `evil.com` POSTing to the gateway), which mitigates the most common CSRF vectors.
+
+**Programmatic access (curl, CI pipelines):** the `Authorization: Bearer` header fallback in `_extract_token()` ensures non-browser clients continue to work. A future `/auth/token` endpoint could be added specifically for programmatic use cases that need the raw token in a response body.
+
 ### Why no k8s_token in the JWT?
 
-The JWT payload is base64-encoded, not encrypted. Anyone with the token — obtained via XSS on `localStorage`, network interception, or physical browser access — can decode the payload. Including the SA token in the payload would expose direct cluster access credentials to any attacker who steals a JWT.
+The JWT payload is base64-encoded, not encrypted — anyone holding the token can decode the payload with a single `atob()` call. Including the SA token in the payload would expose direct cluster access credentials to any attacker who obtains the JWT.
 
-By keeping only `cluster_id` and `profile` in the JWT, a stolen token can only be used through the gateway, which enforces its own authentication and rate limiting. The attacker cannot use the token to talk directly to the Kubernetes API server.
+By keeping only `cluster_id` and `profile` in the JWT, a stolen token can only be used through the gateway, which enforces its own rate limiting and authentication. The attacker cannot use it to talk directly to the Kubernetes API server.
 
 ### Why CA cert on disk and not in-memory?
 
@@ -810,4 +861,3 @@ Helm reads credentials from a kubeconfig file. Passing credentials via environme
 ### Why `--repository-config` per cluster instead of shared?
 
 Helm's default `repositories.yaml` at `~/.config/helm/repositories.yaml` is a single file. In a multi-cluster gateway, a repository added by a user of Cluster A would be immediately visible to users of Cluster B. Passing `--repository-config /tmp/helm_repos/{cluster_id}/repositories.yaml` gives each cluster its own isolated repository namespace at the cost of one additional CLI flag per subprocess invocation.
-
