@@ -1,13 +1,33 @@
-backend/data/
+# --- Database & Persistence ---
 data/
-.env
+*.db                 # File database SQLite
+*.db-journal         # File temporanei di SQLite
+
+# --- Security & Environment ---
+.env               
+.env.local
+
+
+# --- Backend / Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+backend/tests/       
+backend/pytest.ini
+backend/debug_factory.py
+migrate_encrypt.py 
+nginx.conf  
+
+# --- Frontend & UI Assets ---
 frontend/favicon.ico
 frontend/logo_dashboard.jfif
 
-frontend/nginx.conf
-backend/debug_factory.py
-backend/tests
-backend/pytest.ini
+# --- DevOps & Docker ---
 docker-compose.test.yml
-migrate_encrypt.py
-.dockerignore
+.dockerignore        
+
+# --- OS & IDE ---
+.DS_Store            # macOS
+Thumbs.db            # Windows
+.vscode/             # Configurazioni editor
+.idea/
