@@ -135,7 +135,7 @@ async def list_profiles(cluster_id: Optional[str] = None, name: Optional[str] = 
             "id": p.id,
             "cluster_id": p.cluster_id,
             "name": p.name,
-            "token_preview": f"{p.k8s_token[:10]}..." if p.k8s_token else "N/A"
+            "has_token": bool(p.k8s_token)
         } for p in profiles]
     finally:
         db.close()

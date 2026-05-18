@@ -10,46 +10,28 @@ Usa **Fernet** (dalla libreria ``cryptography``):
 - IV casuale incluso in ogni token → encrypt dello stesso valore produce
   token diversi ad ogni chiamata (non deterministico — sicuro)
 
-La chiave viene letta da ``ENCRYPTION_KEY`` nell'environment.
-Se mancante o malformata, il processo non parte (fail-fast).
-
-Generare una nuova chiave (eseguire una sola volta):
-    python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-
-Poi aggiungere al .env:
-    ENCRYPTION_KEY=<output del comando sopra>
+La chiave viene gestita tramite la classe centralizzata ``settings``.
 
 IMPORTANTE: perdere la chiave significa perdere l'accesso a tutti i dati
 cifrati nel database. Fare backup della chiave in un vault sicuro.
 """
 
-import os
-
 from cryptography.fernet import Fernet, InvalidToken
+from app.core.config import settings
 
+_fernet_instance = None
 
-# ---------------------------------------------------------------------------
-# Caricamento chiave (fail-fast all'avvio)
-# ---------------------------------------------------------------------------
-
-_raw_key = os.getenv("ENCRYPTION_KEY", "").strip()
-
-if not _raw_key:
-    raise RuntimeError(
-        "ENCRYPTION_KEY non configurata. "
-        "Generare una chiave con:\n"
-        "  python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"\n"
-        "e aggiungerla al file .env come ENCRYPTION_KEY=<valore>"
-    )
-
-try:
-    _fernet = Fernet(_raw_key.encode())
-except (ValueError, Exception) as exc:
-    raise RuntimeError(
-        f"ENCRYPTION_KEY non valida: {exc}\n"
-        "Assicurarsi di usare una chiave generata con Fernet.generate_key()."
-    ) from exc
-
+def _get_fernet() -> Fernet:
+    """
+    Inizializza l'istanza Fernet on-demand.
+    Accede a settings.ENCRYPTION_KEY solo quando viene effettivamente chiamato.
+    """
+    global _fernet_instance
+    if _fernet_instance is None:
+        # Recuperiamo la chiave dall'oggetto settings centralizzato
+        key = settings.ENCRYPTION_KEY
+        _fernet_instance = Fernet(key.encode())
+    return _fernet_instance
 
 # ---------------------------------------------------------------------------
 # API pubblica
@@ -77,7 +59,9 @@ def encrypt(value: str) -> str:
     """
     if not isinstance(value, str):
         raise TypeError(f"encrypt() richiede una stringa, ricevuto {type(value)}")
-    return _fernet.encrypt(value.encode()).decode()
+    
+    fernet = _get_fernet()
+    return fernet.encrypt(value.encode()).decode()
 
 
 def decrypt(token: str) -> str:
@@ -103,8 +87,10 @@ def decrypt(token: str) -> str:
     """
     if not isinstance(token, str):
         raise TypeError(f"decrypt() richiede una stringa, ricevuto {type(token)}")
+    
+    fernet = _get_fernet()
     try:
-        return _fernet.decrypt(token.encode()).decode()
+        return fernet.decrypt(token.encode()).decode()
     except InvalidToken as exc:
         raise ValueError(
             "Impossibile decifrare il valore: token corrotto, manomesso, "

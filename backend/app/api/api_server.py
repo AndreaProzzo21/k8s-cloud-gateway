@@ -8,6 +8,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+# Import della configurazione centralizzata
+from app.core.config import settings
+
 from app.api.rate_limiter import RateLimitMiddleware
 from app.core.exceptions import K8sBaseException
 from app.api.routes.k8s_routes import router as k8s_router
@@ -27,37 +30,10 @@ async def lifespan(app: FastAPI):
     """Lifecycle manager per startup e shutdown del gateway."""
     logger.info("🚀 Avvio K8S Cloud Gateway...")
     init_db()
+    # L'osservatore viene avviato come task in background
     asyncio.create_task(FleetManager.start_observer(interval_seconds=30))
     yield
     logger.info("🛑 Spegnimento Gateway...")
-
-
-def _get_allowed_origins() -> list[str]:
-    """
-    Costruisce la lista delle origini CORS consentite.
-
-    Con nginx come reverse proxy il browser vede sempre una sola origine
-    (quella di nginx), quindi questa lista copre:
-      - sviluppo locale diretto sul frontend (porta 80 o 3000 con dev server)
-      - accesso via NodePort Kubernetes
-      - dominio personalizzato se configurato via Ingress
-
-    Aggiungere ulteriori origini tramite la variabile d'ambiente
-    CORS_EXTRA_ORIGINS (separare con virgola):
-      CORS_EXTRA_ORIGINS=https://k8s-gateway.example.com,http://192.168.1.10:30090
-    """
-    origins = [
-        "http://localhost",
-        "http://localhost:80",
-        "http://127.0.0.1",
-        "http://127.0.0.1:80",
-    ]
-
-    extra = os.getenv("CORS_EXTRA_ORIGINS", "")
-    if extra:
-        origins.extend(o.strip() for o in extra.split(",") if o.strip())
-
-    return origins
 
 
 def create_app() -> FastAPI:
@@ -88,7 +64,7 @@ def create_app() -> FastAPI:
     #      direttamente in futuro (es. sviluppo, testing con client esterni)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=_get_allowed_origins(),
+        allow_origins=settings.get_allowed_origins(), # Ora usa settings
         allow_credentials=True,     # necessario per i cookie httpOnly
         allow_methods=["*"],
         allow_headers=["*"],
@@ -136,7 +112,7 @@ def create_app() -> FastAPI:
 
     # ── ROUTING ────────────────────────────────────────────────────────
 
-    app.include_router(auth_router,   prefix="/api/v1/auth",         tags=["Authentication"])
+    app.include_router(auth_router,   prefix="/api/v1/auth",          tags=["Authentication"])
     app.include_router(k8s_router,    prefix="/api/v1",               tags=["Kubernetes Operations"])
     app.include_router(helm_router,   prefix="/api/v1/helm",          tags=["Helm Management"])
     app.include_router(admin_router,  prefix="/api/v1/admin",         tags=["Admin Operations"])
@@ -145,4 +121,5 @@ def create_app() -> FastAPI:
     return app
 
 
+# Inizializzazione dell'app basata sulla factory function
 app = create_app()

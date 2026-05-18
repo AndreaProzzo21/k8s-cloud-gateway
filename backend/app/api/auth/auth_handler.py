@@ -4,25 +4,7 @@ import os
 import secrets
 from fastapi import HTTPException, status
 from app.core.registry import ClusterRegistry
-
-JWT_SECRET = os.getenv("JWT_SECRET_KEY")
-ALGORITHM = os.getenv("JWT_SECRET_ALGORITHM", "HS256")
-TOKEN_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "1"))
-
-# Fail fast all'avvio se il secret non è configurato.
-# Mai usare un default: se manca la variabile d'ambiente il processo non parte.
-if not JWT_SECRET:
-    raise RuntimeError(
-        "JWT_SECRET_KEY non configurato. "
-        "Impostare la variabile d'ambiente prima di avviare il gateway."
-    )
-
-if JWT_SECRET == "change-me-in-production":
-    raise RuntimeError(
-        "JWT_SECRET_KEY ha ancora il valore di default. "
-        "Generare un secret sicuro: python -c \"import secrets; print(secrets.token_hex(32))\""
-    )
-
+from app.core.config import settings
 
 def create_access_token(cluster_id: str, profile: str, password: str) -> str:
     """
@@ -56,16 +38,16 @@ def create_access_token(cluster_id: str, profile: str, password: str) -> str:
         # Utile in futuro per una blocklist di revoca.
         "jti": secrets.token_hex(16),
         "iat": datetime.datetime.utcnow(),
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=TOKEN_EXPIRE_HOURS),
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=settings.JWT_EXPIRE_HOURS),
     }
 
-    return jwt.encode(payload, JWT_SECRET, algorithm=ALGORITHM)
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_SECRET_ALGORITHM)
 
 
 def decode_access_token(token: str) -> dict:
     """Valida il JWT e restituisce il payload."""
     try:
-        return jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
+        return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_SECRET_ALGORITHM])
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token scaduto")
     except jwt.InvalidTokenError:

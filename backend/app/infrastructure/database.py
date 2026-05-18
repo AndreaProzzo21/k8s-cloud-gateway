@@ -59,15 +59,15 @@ from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy.types import TypeDecorator
 
 from app.infrastructure.encryption import decrypt, encrypt
+from app.core.config import settings
 
 
 # ---------------------------------------------------------------------------
 # Connessione al database
 # ---------------------------------------------------------------------------
 
-DB_PATH = os.getenv("DATABASE_URL", "sqlite:///data/gateway.db")
 engine = create_engine(
-    f"sqlite:///{DB_PATH}",
+    settings.DATABASE_URL,
     connect_args={"check_same_thread": False},
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

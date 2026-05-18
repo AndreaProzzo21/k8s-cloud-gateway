@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Body, status, Response
-from app.api.auth.auth_handler import create_access_token, TOKEN_EXPIRE_HOURS
+from app.api.auth.auth_handler import create_access_token
+from app.core.config import settings
 
 auth_router = APIRouter()
 
@@ -22,11 +23,11 @@ async def login(
         httponly=True,          # non accessibile da JS
         samesite="strict",      # inviato solo su stessa origine
         secure=False,           # → True in produzione con HTTPS
-        max_age=TOKEN_EXPIRE_HOURS * 3600,
+        max_age=settings.JWT_EXPIRE_HOURS * 3600,
         path="/",
     )
     # Restituiamo solo i metadati, mai il token
-    return {"token_type": "bearer", "expires_in": TOKEN_EXPIRE_HOURS}
+    return {"token_type": "bearer", "expires_in": settings.JWT_EXPIRE_HOURS}
 
 
 @auth_router.post("/logout")
