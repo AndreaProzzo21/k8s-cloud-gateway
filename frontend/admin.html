@@ -815,6 +815,30 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* Badge Styles */
+.badge-pill {
+    display: inline-block;
+    padding: 2px 12px;
+    border-radius: 50px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border: 1px solid transparent;
+}
+
+.badge-success {
+    background-color: #e6f4ea;
+    color: #1e7e34;
+    border-color: #c3e6cb;
+}
+
+.badge-danger {
+    background-color: #fce8e6;
+    color: #d93025;
+    border-color: #f5c6cb;
+}
     </style>
 </head>
 <body>
@@ -1155,7 +1179,7 @@
             <div class="welcome-container animate-fade-in">
                 <div class="welcome-header">
                     <div class="welcome-icon"><i class="fas fa-rocket"></i></div>
-                    <h2>Welcome to OmniKube</h2>
+                    <h2>Welcome to K8s Gateway Admin console</h2>
                     <p>To enable real-time fleet monitoring and audit features, follow these initialization steps.</p>
                 </div>
                 
@@ -1261,18 +1285,49 @@
 
     function renderClustersTable(data) {
         const el = document.getElementById('clustersTable');
-        if (!data.length) { el.innerHTML = emptyHtml('No clusters registered. Add your first cluster to get started.', 'fa-server'); return; }
-        el.innerHTML = `<table class="data-table">
-            <thead><tr><th>ID</th><th>Name</th><th>Host</th><th style="text-align:right">Actions</th></tr></thead>
-            <tbody>${data.map(c => `<tr>
-                <td><span class="badge-id">${esc(c.id)}</span></td>
-                <td style="font-weight:600">${esc(c.name)}</td>
-                <td class="mono">${esc(c.host)}</td>
-                <td><div class="table-actions">
-                    <button class="btn-edit-sm" onclick='openClusterModal(${JSON.stringify(c)})'><i class="fas fa-edit"></i> Edit</button>
-                    <button class="btn-danger-sm" onclick="deleteCluster('${esc(c.id)}')"><i class="fas fa-trash"></i></button>
-                </div></td>
-            </tr>`).join('')}</tbody></table>`;
+        
+        if (!data || !data.length) { 
+            el.innerHTML = emptyHtml('No clusters registered. Add your first cluster to get started.', 'fa-server'); 
+            return; 
+        }
+
+        el.innerHTML = `
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Host</th>
+                        <th>CA Cert</th>
+                        <th style="text-align:right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.map(c => `
+                        <tr>
+                            <td><span class="badge-id">${esc(c.id)}</span></td>
+                            <td style="font-weight:600">${esc(c.name)}</td>
+                            <td class="mono">${esc(c.host)}</td>
+                            <td>
+                                ${c.has_ca 
+                                    ? '<span class="badge-pill badge-success">CONFIGURED</span>' 
+                                    : '<span class="badge-pill badge-danger">MISSING</span>'}
+                            </td>
+                            <td>
+                                <div class="table-actions" style="justify-content: flex-end">
+                                    <button class="btn-edit-sm" onclick='openClusterModal(${JSON.stringify(c)})'>
+                                        <i class="fas fa-edit"></i> Edit
+                                    </button>
+                                    <button class="btn-danger-sm" onclick="deleteCluster('${esc(c.id)}')">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
     }
 
     async function deleteCluster(id) {
@@ -1335,7 +1390,11 @@
             <tbody>${data.map(p => `<tr>
                 <td><span class="badge-id">${esc(p.cluster_id)}</span></td>
                 <td style="font-weight:600">${esc(p.name)}</td>
-                <td><span class="code-preview">${esc(p.token_preview || '—')}</span></td>
+                <td>
+                    ${p.has_token 
+                        ? '<span class="badge-pill badge-success">CONFIGURED</span>' 
+                        : '<span class="badge-pill badge-danger">MISSING</span>'}
+                </td>
                 <td><div class="table-actions">
                     <button class="btn-edit-sm" onclick='openProfileModal(${JSON.stringify(p)})'><i class="fas fa-edit"></i> Edit</button>
                     <button class="btn-danger-sm" onclick="deleteProfile(${p.id})"><i class="fas fa-trash"></i></button>

@@ -111,7 +111,7 @@ async function loadDeployments() {
                     <td><b>${d.replicas_ready}</b>/${d.replicas_desired}</td>
                     <td><span class="badge ${statusClass}">${d.status}</span></td>
                     <td style="text-align:right; white-space: nowrap;" onclick="event.stopPropagation()">
-                        <button onclick="scaleDeploy('${d.name}', ${d.replicas_desired})" class="btn-small scale-btn" title="Scale">Scale</button>
+                        <button onclick="scaleDeploy('${d.name}', ${d.replicas_desired})" class="btn-small scale-btn" title="Scale"><i class="fas fa-layer-group"></i></button>
                         <button onclick="restartDeploy('${d.name}')" class="btn-small restart-btn" title="Restart Rollout"><i class="fas fa-sync"></i></button>
                         <button onclick="deleteResource('deployments', '${d.name}')" class="btn-small delete-btn" title="Delete Deployment"><i class="fas fa-trash"></i></button>
                     </td>
@@ -635,14 +635,22 @@ function showInspectorModal(info) {
 
                 <div class="ins-section">
                     <h4><i class="fas fa-tags"></i> Labels</h4>
-                    <div class="labels-wrapper">
-                        ${renderLabels(info.labels)}
+                    <div class="labels-container" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 180px; overflow-y: auto; padding: 4px;">
+                        ${info.labels && Object.keys(info.labels).length > 0 
+                            ? Object.entries(info.labels).map(([k, v]) => `
+                                <div class="label-pill" style="display: flex; align-items: center; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.72rem; overflow: hidden; white-space: nowrap;">
+                                    <span style="background: #e2e8f0; padding: 2px 6px; color: #475569; font-weight: 600; border-right: 1px solid #cbd5e0;">${k}</span>
+                                    <span style="padding: 2px 6px; color: #1e293b;">${v}</span>
+                                </div>
+                            `).join('')
+                            : '<span class="none-text">No labels assigned</span>'
+                        }
                     </div>
                 </div>
 
                 <div class="ins-section">
                     <h4><i class="fas fa-sticky-note"></i> Annotations</h4>
-                    <div class="annotations-wrapper">
+                    <div class="annotations-wrapper" style="max-height: 150px; overflow-y: auto;">
                         ${annotationsHtml}
                     </div>
                 </div>
