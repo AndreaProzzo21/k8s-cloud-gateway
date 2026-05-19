@@ -368,6 +368,8 @@ body {
 }
 
 .nav-brand {
+    align-items: center;
+    
     font-weight: 800;
     font-size: 13.5px;
     text-transform: uppercase;
@@ -375,9 +377,8 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-    
-    /* Effetto Bi-Colore sul testo tramite Gradient */
-    background: linear-gradient(to right, #fffad1 115px, #ffffff 115px);
+
+    background: #ffffff;
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -386,14 +387,8 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
-.nav-brand i {
-    /* L'icona riprende il giallo tenue del brand per coerenza */
-    color: #fffad1;
-    font-size: 1.1rem;
-    /* Rimuove l'effetto trasparente del gradient dall'icona */
-    -webkit-text-fill-color: #fffad1;
-    filter: drop-shadow(0 0 8px rgba(255, 250, 209, 0.2));
-}
+
+
 
 .nav-right-container {
     display: flex;

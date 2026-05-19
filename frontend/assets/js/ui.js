@@ -199,16 +199,28 @@ function setActive(el) {
 
 function showManualInput() {
     const container = document.getElementById('nsContextArea');
+    if (!container) return;
+
     container.innerHTML = `
-        <div style="display:flex; align-items:center; gap:10px;">
-            <input type="text" id="manualNS" value="${window.currentNamespace}" 
-                placeholder="Insert namespace" 
-                style="width: 180px; padding: 8px; border-radius: 8px; border: 1px solid var(--border);">
+        <div class="ns-scoped-container" style="display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.03); padding: 4px 8px; border-radius: 10px; border: 1px solid var(--border);">
+            
+            <div style="display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 0.8rem; padding-left: 4px;">
+                <i class="fas fa-key" style="color: #b59a00; font-size: 0.75rem;"></i>
+                <span style="font-weight: 500; font-size: 0.75rem; letter-spacing: 0.02em;">Scope:</span>
+            </div>
+
+            <input type="text" id="manualNS" value="${window.currentNamespace || ''}" 
+                placeholder="Enter authorized namespace..." 
+                style="width: 190px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-input, #fff); font-size: 0.82rem; font-family: monospace; outline: none; box-sizing: border-box;"
+                onkeydown="if(event.key === 'Enter') updateNamespaceContext(this.value)">
+            
             <button onclick="updateNamespaceContext(document.getElementById('manualNS').value)" 
-                    class="btn-small" style="background:var(--accent); color:white;">
-                Select
+                class="btn-small" 
+                style="background: var(--accent); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: opacity 0.2s;"
+                onmouseover="this.style.opacity=0.9"
+                onmouseout="this.style.opacity=1">
+                Apply
             </button>
-            <small style="color:var(--text-muted); font-size:0.65rem;">Limited Access</small>
         </div>
     `;
 }
@@ -431,7 +443,7 @@ function renderLabelFilter(visible = false) {
                 </ul>
             </div>
             <input type="text" id="labelFilter" placeholder="Filter by label..." 
-                style="width: 180px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.8rem;"
+                style="width: 190px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-input, #fff); font-size: 0.82rem; font-family: monospace; outline: none; box-sizing: border-box;"
                 onkeydown="if(event.key==='Enter') refreshCurrentView()">
         </div>
     `;
