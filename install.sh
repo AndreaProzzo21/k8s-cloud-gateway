@@ -90,7 +90,8 @@ print_info "${C_CYAN}[1/3] Admin Console Master Key${C_RESET}"
 print_info "This key is required to access the central Admin Dashboard (/admin.html)."
 print_info "It protects your cluster registrations and global fleet visibility."
 while true; do
-    read -rp "    Enter a strong master key (e.g., a long password): " ADMIN_KEY
+    # Aggiunto < /dev/tty per forzare la lettura dal terminale dell'utente
+    read -rp "    Enter a strong master key (e.g., a long password): " ADMIN_KEY < /dev/tty
     if [[ -n "$ADMIN_KEY" ]]; then
         break
     else
@@ -104,14 +105,14 @@ print_info "${C_CYAN}[2/3] Database Encryption Key${C_RESET}"
 print_info "The Gateway encrypts all sensitive Kubernetes tokens inside its SQLite database using AES (Fernet)."
 print_warn "NEVER change this key after the first setup, or you will lose access to all registered clusters."
 print_info "If you leave this blank, the platform will auto-generate a secure key and save it in 'data/.encryption_key'."
-read -rp "    Provide a custom 32-byte base64 Fernet key [Press ENTER to auto-generate]: " ENC_KEY
+read -rp "    Provide a custom 32-byte base64 Fernet key [Press ENTER to auto-generate]: " ENC_KEY < /dev/tty
 echo ""
 
 # --- JWT_SECRET_KEY ---
 print_info "${C_CYAN}[3/3] JWT Session Key${C_RESET}"
 print_info "This key signs the browser cookies for logged-in users."
 print_info "If left blank, a volatile key is generated on boot (users will be logged out if the container restarts)."
-read -rp "    Provide a custom JWT Secret [Press ENTER for volatile sessions]: " JWT_KEY
+read -rp "    Provide a custom JWT Secret [Press ENTER for volatile sessions]: " JWT_KEY < /dev/tty
 echo ""
 
 # ==============================================================================
