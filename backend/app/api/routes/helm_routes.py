@@ -23,11 +23,14 @@ Gestione errori
 
 import json
 from typing import Any, Optional
-
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile, status
-
+import os
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile, status, Form
 from app.api.dependencies.get_helm_manager import get_helm_manager
 from app.core.helm_manager import HelmManager
+from app.core.helm_package_utils import safe_extension
+import shutil
+import tempfile
+from pathlib import Path
 
 router = APIRouter()
 
@@ -191,60 +194,6 @@ async def install_or_upgrade_chart(
     )
     return _require_success(result, f"helm upgrade --install {release_name}")
 
-
-@router.post(
-    "/namespaces/{namespace}/releases/{release_name}/from-zip",
-    status_code=status.HTTP_200_OK,
-)
-async def install_from_zip(
-    namespace: str,
-    release_name: str,
-    file: UploadFile = File(
-        ...,
-        description="Archivio ZIP con il chart Helm (deve contenere Chart.yaml)",
-    ),
-    values_json: Optional[str] = Query(
-        None,
-        description="Valori di override come JSON string (es: '{\"replicaCount\": 2}')",
-    ),
-    atomic: bool = Query(False),
-    wait: bool = Query(False),
-    create_namespace: bool = Query(False),
-    manager: HelmManager = Depends(get_helm_manager),
-):
-    """
-    Installa un chart da archivio ZIP.
-    Il file ZIP deve contenere una directory con ``Chart.yaml``.
-    Esegue ``helm upgrade --install`` sul chart estratto.
-    """
-    if not file.filename.lower().endswith(".zip"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Il file deve avere estensione .zip",
-        )
-
-    content = await file.read()
-
-    values: dict | None = None
-    if values_json:
-        try:
-            values = json.loads(values_json)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"values_json non è un JSON valido: {exc}",
-            )
-
-    result = await manager.install_from_zip(
-        zip_bytes=content,
-        release_name=release_name,
-        namespace=namespace,
-        values=values,
-        atomic=atomic,
-        wait=wait,
-        create_namespace=create_namespace
-    )
-    return _require_success(result, f"helm install from zip → {release_name}")
 
 
 @router.post(
@@ -410,41 +359,164 @@ async def get_chart_default_values(
     result = await manager.show_chart_values(chart_ref, version)
     return _require_success(result, f"helm show values {chart_ref}")
 
-@router.get("/charts/lint")
-async def lint_chart_from_ref(
-    chart_ref: str = Query(..., description="Riferimento chart (es. 'bitnami/nginx')"),
-    strict: bool = Query(False, description="Tratta i warning come errori"),
-    manager: HelmManager = Depends(get_helm_manager),
+
+# Allowed upload extensions — keep in sync with frontend _ALLOWED_CHART_EXTENSIONS
+_ALLOWED_EXTENSIONS = (".zip", ".tgz", ".tar.gz", ".tar.bz2", ".tar.xz")
+ 
+ 
+# ---------------------------------------------------------------------------
+# POST /charts/lint
+# ---------------------------------------------------------------------------
+ 
+@router.post("/charts/lint")
+async def unified_lint(
+    file:      Optional[UploadFile] = File(None),
+    chart_ref: Optional[str]        = Form(None),
+    version:   Optional[str]        = Form(None),
+    strict:    bool                 = Form(False),
+    manager:   HelmManager          = Depends(get_helm_manager),
 ):
     """
-    Esegue helm lint su un chart da repository.
-    Restituisce sempre HTTP 200 con has_errors/has_warnings nel body —
-    non solleva eccezione su lint fallito (è un risultato, non un errore di sistema).
+    Lints a Helm chart from a local archive upload or a remote repository reference.
+ 
+    Exactly one of ``file`` or ``chart_ref`` must be provided.
+ 
+    - **file**: ZIP, TGZ, TAR.GZ, TAR.BZ2, or TAR.XZ archive.
+    - **chart_ref**: remote chart reference (e.g. ``bitnami/nginx``).
+    - **version**: chart version (only used with chart_ref).
+    - **strict**: treat warnings as errors (``--strict``).
+ 
+    Returns HTTP 200 on success (no errors, possibly warnings).
+    Returns HTTP 422 when lint finds errors — body contains stdout/stderr.
     """
-    result = await manager.lint(chart_ref=chart_ref, strict=strict)
-    return result
-
-
-@router.post("/charts/lint-zip")
-async def lint_chart_from_zip(
-    file: UploadFile = File(..., description="ZIP con il chart Helm"),
-    strict: bool = Query(False),
-    values_json: Optional[str] = Query(None, description="Valori override come JSON string"),
-    manager: HelmManager = Depends(get_helm_manager),
+    if not file and not chart_ref:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide either a chart file upload or a chart_ref string.",
+        )
+ 
+    tmp_archive_path: Optional[str] = None
+ 
+    try:
+        if file:
+            # Stream upload to disk — never read the whole file into RAM
+            ext = safe_extension(file.filename or "")
+            fd, tmp_archive_path = tempfile.mkstemp(
+                suffix=ext, prefix="helm_lint_upload_"
+            )
+            with os.fdopen(fd, "wb") as f_out:
+                shutil.copyfileobj(file.file, f_out)
+ 
+            result = await manager.lint(archive_path=tmp_archive_path, strict=strict)
+        else:
+            result = await manager.lint(
+                chart_ref=chart_ref, version=version, strict=strict
+            )
+ 
+    finally:
+        if tmp_archive_path and os.path.exists(tmp_archive_path):
+            try:
+                os.remove(tmp_archive_path)
+            except OSError:
+                pass
+ 
+    # Return 422 with structured body when lint finds errors,
+    # so the frontend can extract stdout/stderr and render them properly.
+    if result.get("has_errors"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message":      "Chart has lint errors.",
+                "stdout":       result.get("stdout", ""),
+                "stderr":       result.get("stderr", ""),
+                "has_errors":   True,
+                "has_warnings": result.get("has_warnings", False),
+            },
+        )
+ 
+    return {
+        "success":      True,
+        "stdout":       result.get("stdout", ""),
+        "stderr":       result.get("stderr", ""),
+        "has_errors":   False,
+        "has_warnings": result.get("has_warnings", False),
+    }
+ 
+ 
+# ---------------------------------------------------------------------------
+# POST /namespaces/{namespace}/releases/{release_name}/package
+# ---------------------------------------------------------------------------
+ 
+@router.post(
+    "/namespaces/{namespace}/releases/{release_name}/package",
+    status_code=status.HTTP_200_OK,
+)
+async def install_from_package_route(
+    namespace:        str,
+    release_name:     str,
+    file:             UploadFile    = File(..., description="ZIP, TGZ, or TAR.GZ archive containing a Helm chart"),
+    values_json:      Optional[str] = Query(None, description="Override values as a JSON string"),
+    atomic:           bool          = Query(False),
+    wait:             bool          = Query(False),
+    create_namespace: bool          = Query(False),
+    manager:          HelmManager   = Depends(get_helm_manager),
 ):
     """
-    Esegue helm lint su un chart fornito come ZIP.
-    Utile per validare prima di eseguire install_from_zip.
+    Installs or upgrades a Helm release from an uploaded chart archive.
+ 
+    The archive must contain a valid Helm chart (with ``Chart.yaml``).
+    Supported: ``.zip``, ``.tgz``, ``.tar.gz``, ``.tar.bz2``, ``.tar.xz``.
+ 
+    The upload is streamed to disk in chunks — memory usage is O(1)
+    regardless of archive size.
     """
-    if not file.filename.lower().endswith(".zip"):
-        raise HTTPException(status_code=400, detail="Il file deve essere un .zip")
-
-    content = await file.read()
+    # Validate extension before any I/O
+    filename = (file.filename or "").lower()
+    if not any(filename.endswith(ext) for ext in _ALLOWED_EXTENSIONS):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unsupported file format. "
+                f"Allowed: {', '.join(_ALLOWED_EXTENSIONS)}"
+            ),
+        )
+ 
+    # Parse optional values override
     values: dict | None = None
     if values_json:
-        try: values = json.loads(values_json)
+        try:
+            values = json.loads(values_json)
         except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=400, detail=f"values_json non valido: {exc}")
-
-    result = await manager.lint(zip_bytes=content, values=values, strict=strict)
-    return result
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"values_json is not valid JSON: {exc}",
+            )
+ 
+    # Stream upload to disk
+    ext = safe_extension(file.filename or "")
+    fd, tmp_archive_path = tempfile.mkstemp(
+        suffix=ext, prefix="helm_pkg_upload_"
+    )
+ 
+    try:
+        with os.fdopen(fd, "wb") as f_out:
+            shutil.copyfileobj(file.file, f_out)
+ 
+        result = await manager.install_from_package(
+            archive_path=tmp_archive_path,
+            release_name=release_name,
+            namespace=namespace,
+            values=values,
+            atomic=atomic,
+            wait=wait,
+            create_namespace=create_namespace,
+        )
+ 
+    finally:
+        if os.path.exists(tmp_archive_path):
+            try:
+                os.remove(tmp_archive_path)
+            except OSError:
+                pass
+ 
+    return _require_success(result, f"helm install from package → {release_name}")

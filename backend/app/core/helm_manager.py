@@ -57,9 +57,9 @@ import json
 import os
 import shutil
 import tempfile
-import zipfile
-from pathlib import Path
 from typing import Any
+from app.core.helm_package_utils import detect_and_unpack, find_chart_root
+
 
 
 # ---------------------------------------------------------------------------
@@ -598,12 +598,11 @@ class HelmManager:
         return await self._run(*args, timeout=TIMEOUT_READ)
 
     # ---------------------------------------------------------------------------
-    # Install da ZIP
+    # Install from Package
     # ---------------------------------------------------------------------------
-
-    async def install_from_zip(
+    async def install_from_package(
         self,
-        zip_bytes: bytes,
+        archive_path: str,
         release_name: str,
         namespace: str = "default",
         values: dict | None = None,
@@ -612,66 +611,64 @@ class HelmManager:
         wait: bool = False,
     ) -> dict:
         """
-        Installa un Helm chart fornito come archivio ZIP.
-
-        Il metodo estrae il contenuto dello ZIP in una directory temporanea,
-        individua il chart cercando ``Chart.yaml``, esegue ``helm upgrade --install``
-        sul path estratto, e rimuove la directory temporanea nel blocco ``finally``.
-
+        Installs a Helm chart from a local archive file (ZIP, TGZ, TAR.GZ, …).
+    
+        Accepts a path to an already-saved archive rather than raw bytes.
+        The route handler is responsible for streaming the upload to disk
+        and for cleaning up the temp file after this method returns.
+    
         Parameters
         ----------
-        zip_bytes : bytes
-            Contenuto binario del file ZIP contenente il chart Helm.
-            Lo ZIP deve contenere una directory con ``Chart.yaml`` al suo interno.
+        archive_path : str
+            Absolute path to the archive file on disk.
         release_name : str
-            Nome della release Helm.
+            Helm release name.
         namespace : str
-            Namespace di destinazione. Default: ``"default"``.
+            Target Kubernetes namespace.
         values : dict | None
-            Valori di override (passati a ``install_or_upgrade``).
+            Optional override values.
         create_namespace : bool
-            Se True crea il namespace se non esiste.
+            Pass --create-namespace to helm if True.
         atomic : bool
-            Se True rollback automatico in caso di errore.
+            Pass --atomic (auto-rollback on failure) if True.
         wait : bool
-            Se True attende che tutte le risorse siano Ready.
-
+            Pass --wait (block until resources are Ready) if True.
+    
         Returns
         -------
         dict
-            Risultato di ``install_or_upgrade`` sul chart estratto.
-
-        Raises
-        ------
-        ValueError
-            Se lo ZIP non contiene nessun ``Chart.yaml`` (chart non valido).
-        zipfile.BadZipFile
-            Se i bytes forniti non sono un archivio ZIP valido.
+            Result dict from ``install_or_upgrade``.
         """
-        tmpdir = tempfile.mkdtemp(prefix=f"helm_chart_{self._cluster_id}_")
+        tmpdir = tempfile.mkdtemp(prefix=f"helm_pkg_{self._cluster_id}_")
+    
         try:
-            # Estrazione ZIP
-            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-                zf.extractall(tmpdir)
-
-            # Ricerca del chart: il primo Chart.yaml trovato in profondità
-            chart_path: str | None = None
-            for chart_yaml in sorted(Path(tmpdir).rglob("Chart.yaml")):
-                chart_path = str(chart_yaml.parent)
-                break
-
+            # Step 1 — unpack
+            try:
+                detect_and_unpack(archive_path, tmpdir)
+            except ValueError as exc:
+                return {
+                    "success":    False,
+                    "stdout":     "",
+                    "stderr":     str(exc),
+                    "command":    "install_from_package / unpack",
+                    "returncode": 1,
+                }
+    
+            # Step 2 — locate chart root
+            chart_path = find_chart_root(tmpdir)
             if chart_path is None:
-                raise ValueError(
-                    "Chart.yaml non trovato nell'archivio ZIP. "
-                    "Assicurarsi che lo ZIP contenga un Helm chart valido."
-                )
-
-            print(
-                f"[HelmManager:{self._cluster_id}] "
-                f"Chart trovato in: {chart_path} — "
-                f"release: '{release_name}', namespace: '{namespace}'"
-            )
-
+                return {
+                    "success":    False,
+                    "stdout":     "",
+                    "stderr":     (
+                        "Chart.yaml not found in the archive. "
+                        "Make sure the archive contains a valid Helm chart."
+                    ),
+                    "command":    "install_from_package / find_chart",
+                    "returncode": 1,
+                }
+    
+            # Step 3 — install or upgrade
             return await self.install_or_upgrade(
                 release_name=release_name,
                 chart_ref=chart_path,
@@ -681,94 +678,100 @@ class HelmManager:
                 atomic=atomic,
                 wait=wait,
             )
-
+    
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
-
+    
+    
     async def lint(
         self,
         chart_ref: str | None = None,
-        zip_bytes: bytes | None = None,
-        values: dict | None = None,
+        version: str | None = None,
+        archive_path: str | None = None,
         strict: bool = False,
     ) -> dict:
         """
-        Esegue ``helm lint`` su un chart da repo/path o da archivio ZIP.
-
-        helm lint analizza il chart per errori di sintassi, template non validi,
-        valori mancanti e best practice. Non installa nulla nel cluster.
-
+        Lints a Helm chart from a local archive file or a remote reference.
+    
         Parameters
         ----------
         chart_ref : str | None
-            Riferimento al chart (``"bitnami/nginx"``, path locale).
-            Mutuamente esclusivo con ``zip_bytes``.
-        zip_bytes : bytes | None
-            Contenuto binario ZIP del chart. Se fornito, viene estratto in
-            una directory temporanea e lint viene eseguito sul path estratto.
-        values : dict | None
-            Valori di override da passare a lint con ``-f``.
+            Remote chart reference (e.g. "bitnami/nginx").
+            Mutually exclusive with archive_path.
+        version : str | None
+            Chart version to pull. Only used when chart_ref is set.
+        archive_path : str | None
+            Path to a local archive file (ZIP, TGZ, …).
+            The route handler streams the upload here before calling this method.
         strict : bool
-            Se True aggiunge ``--strict``: tratta i warning come errori.
-
+            Pass --strict to helm lint (treats warnings as errors).
+    
         Returns
         -------
         dict
-            Risultato standard. ``stdout`` contiene l'output di lint con
-            eventuali warning/error per chart e template.
-            ``success`` è True anche se ci sono warning (solo False su errori).
+            Standard _run result dict plus:
+            - ``has_errors``   (bool)
+            - ``has_warnings`` (bool)
         """
-        tmpdir: str | None = None
-        values_file: str | None = None
-
+        tmpdir = tempfile.mkdtemp(prefix="helm_lint_")
+    
         try:
-            # Determina il target del lint
-            if zip_bytes is not None:
-                tmpdir = tempfile.mkdtemp(prefix=f"helm_lint_{self._cluster_id}_")
-                with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-                    zf.extractall(tmpdir)
-                # Trova Chart.yaml
-                target: str | None = None
-                for chart_yaml in sorted(Path(tmpdir).rglob("Chart.yaml")):
-                    target = str(chart_yaml.parent)
-                    break
-                if target is None:
-                    raise ValueError("Chart.yaml non trovato nell'archivio ZIP.")
+            target_path: str | None = None
+    
+            if archive_path:
+                # Local upload: unpack into sandbox, find chart root
+                try:
+                    detect_and_unpack(archive_path, tmpdir)
+                except ValueError as exc:
+                    return {
+                        "success":      False,
+                        "stderr":       str(exc),
+                        "has_errors":   True,
+                        "has_warnings": False,
+                    }
+                target_path = find_chart_root(tmpdir)
+    
             elif chart_ref:
-                target = chart_ref
-            else:
-                raise ValueError("Fornire chart_ref oppure zip_bytes.")
-
-            args = ["lint", target]
-
+                # Remote chart: pull first, then lint the extracted directory
+                pull_cmd = ["pull", chart_ref, "--untar", "--untardir", tmpdir]
+                if version:
+                    pull_cmd.extend(["--version", version])
+    
+                pull_result = await self._run(*pull_cmd, timeout=30)
+                if not pull_result.get("success"):
+                    pull_result.setdefault("has_errors",   True)
+                    pull_result.setdefault("has_warnings", False)
+                    return pull_result
+    
+                target_path = find_chart_root(tmpdir)
+    
+            if target_path is None:
+                return {
+                    "success":      False,
+                    "stderr":       "Chart.yaml not found. Ensure the archive contains a valid Helm chart.",
+                    "has_errors":   True,
+                    "has_warnings": False,
+                }
+    
+            # Run helm lint
+            args = ["lint", target_path]
             if strict:
                 args.append("--strict")
-
-            # Valori di override
-            if values:
-                fd, values_file = tempfile.mkstemp(suffix=".yaml", prefix="helm_lint_vals_")
-                import yaml
-                with os.fdopen(fd, "w") as f:
-                    yaml.dump(values, f, default_flow_style=False)
-                os.chmod(values_file, 0o600)
-                args.extend(["-f", values_file])
-
-            # helm lint restituisce rc=1 se trova errori, rc=0 se solo warning.
-            # NON usiamo parse_json: lint non supporta --output json.
-            # Usiamo _run senza check su success: vogliamo sempre stdout+stderr.
-            result = await self._run(*args, timeout=TIMEOUT_READ, parse_json=False)
-
-            # Normalizziamo: aggiungiamo campo "has_errors" e "has_warnings" per il frontend
+    
+            result = await self._run(*args, timeout=20, parse_json=False)
+    
             stdout = result.get("stdout", "")
-            result["has_errors"]   = "[ERROR]" in stdout or not result["success"]
+            result["has_errors"]   = "[ERROR]"   in stdout or not result.get("success")
             result["has_warnings"] = "[WARNING]" in stdout
-            # Forziamo success=True se l'unico problema sono warning (rc=0)
-            # In questo modo il frontend può distinguere warning da errori
             return result
-
+    
+        except Exception as exc:
+            return {
+                "success":      False,
+                "stderr":       f"Lint internal error: {exc}",
+                "has_errors":   True,
+                "has_warnings": False,
+            }
+    
         finally:
-            if values_file:
-                try: os.remove(values_file)
-                except OSError: pass
-            if tmpdir:
-                shutil.rmtree(tmpdir, ignore_errors=True)
+            shutil.rmtree(tmpdir, ignore_errors=True)
