@@ -25,7 +25,7 @@ print_success() { echo -e "    ${C_GREEN}✔${C_RESET} $1"; }
 REPO_URL="https://raw.githubusercontent.com/AndreaProzzo21/k8s-cloud-gateway/main"
 COMPOSE_FILE_URL="${REPO_URL}/deploy/docker-compose-deploy/docker-compose.yml"
 ENV_EXAMPLE_URL="${REPO_URL}/deploy/docker-compose-deploy/.env.example"
-README_URL="${REPO_URL}/deploy/deploy-docker-compose/README.md"
+README_URL="${REPO_URL}/deploy/docker-compose-deploy/README.md"
 INSTALL_DIR="k8s-gateway"
 
 clear
