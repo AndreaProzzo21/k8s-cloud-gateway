@@ -1,7 +1,7 @@
 # --- Database & Persistence ---
 data/
 *.db                 # File database SQLite
-*.db-journal         # File temporanei di SQLite
+*.db-journal         # File temp di SQLite
 
 # --- Security & Environment ---
 .env               
