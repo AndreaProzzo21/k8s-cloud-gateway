@@ -927,7 +927,7 @@
             </div>
             <div class="form-group" style="margin-bottom:0">
                 <label>CA Certificate (PEM)</label>
-                <input type="file" id="clusterCaFile" accept=".crt,.pem,.cer">
+                <input type="file" placeholder="Upload a file" id="clusterCaFile" accept=".crt,.pem,.cer">
             </div>
         </div>
         <div class="modal-footer">
@@ -1100,7 +1100,7 @@
             buildFleetGrid(fleetData);
 
         } catch (e) { 
-            main.innerHTML = emptyHtml("Errore durante il caricamento della flotta: " + e.message, 'fa-exclamation-triangle'); 
+            main.innerHTML = emptyHtml("Error during fleet loading: " + e.message, 'fa-exclamation-triangle'); 
         }
     }
 
