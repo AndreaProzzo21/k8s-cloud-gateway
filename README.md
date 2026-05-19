@@ -205,9 +205,11 @@ curl -X POST http://localhost/api/v1/admin/profiles \
 
 The fastest and most reliable way to get the Gateway running is using the interactive bootstrap script. It downloads the necessary files, guides you through the security configuration, and starts the platform automatically.
 
+#### Run the official installation script
+
 ```bash
-# Run the official installation script
-curl -sSL [https://raw.githubusercontent.com/AndreaProzzo21/k8s-cloud-gateway/main/install.sh](https://raw.githubusercontent.com/AndreaProzzo21/k8s-cloud-gateway/main/install.sh) | bash
+
+curl -sSL https://raw.githubusercontent.com/AndreaProzzo21/k8s-cloud-gateway/main/install.sh | bash
 
 ```
 
