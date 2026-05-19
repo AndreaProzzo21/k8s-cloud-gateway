@@ -86,15 +86,15 @@ sequenceDiagram
     participant K8s as K8s Cluster
 
     Note over User,GW: Phase 1 — Login
-    User->>GW: POST /auth/login<br/>{cluster_id, profile, password}
+    User->>GW: POST /auth/login<br/>(cluster_id, profile, password)
     GW->>DB: verify credentials
     DB-->>GW: ok
-    GW-->>User: Set-Cookie: k8s_jwt=JWT (HttpOnly, SameSite=Lax)<br/>⚠ token never in response body<br/>⚠ no k8s_token inside JWT
+    GW-->>User: Set-Cookie k8s_jwt=JWT (HttpOnly, SameSite=Lax)<br/>⚠ token never in response body<br/>⚠ no k8s_token inside JWT
 
     Note over User,K8s: Phase 2 — Resource Request
-    User->>GW: GET /api/v1/namespaces/{ns}/pods<br/>Cookie: k8s_jwt=JWT (automatic, invisible to JS)
+    User->>GW: GET /api/v1/namespaces/{ns}/pods<br/>Cookie k8s_jwt=JWT (automatic)
     GW->>GW: extract JWT from httpOnly cookie
-    GW->>GW: decode & validate JWT
+    GW->>GW: decode and validate JWT
     GW->>DB: fetch ca_cert for cluster_id
     GW->>DB: fetch k8s_token for profile
     DB-->>GW: credentials
@@ -105,7 +105,7 @@ sequenceDiagram
 
     Note over User,GW: Phase 3 — Logout
     User->>GW: POST /auth/logout
-    GW-->>User: Set-Cookie: k8s_jwt=; expires=past
+    GW-->>User: Set-Cookie k8s_jwt deleted (expires=past)
 ```
 
 **JWT payload contains:** `cluster_id`, `cluster_host`, `profile`, `jti`, `exp`
@@ -192,113 +192,59 @@ curl -X POST http://localhost/api/v1/admin/profiles \
 
 ---
 
-## Project Structure
-
-```
-k8s-cloud-gateway/
-│
-├── docker-compose.yml
-├── .env
-│
-├── backend/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   └── app/
-│       ├── main.py
-│       ├── api/
-│       │   ├── auth/
-|       |   |   ├── auth_routes.py
-│       │   │   └── auth_handler.py          # JWT issue & decode
-│       │   ├── dependencies/
-│       │   │   ├── get_cluster_credentials.py   # shared: JWT cookie + DB → ClusterCredentials
-│       │   │   ├── get_core_manager.py           # builds CoreManager
-│       │   │   └── get_helm_manager.py           # builds HelmManager + kubeconfig lifecycle
-│       │   ├── routes/
-│       │   |   ├── k8s_routes.py            # K8s resource endpoints
-│       │   |   ├── helm_routes.py           # Helm endpoints
-│       │   |   ├── admin_routes.py          # Cluster & profile management
-│       │   |   └── audit_routes.py          # Compliance audit endpoints
-|       |   |__ api_server.py                # API init and settings
-|       |
-│       ├── core/
-│       │   ├── core_manager.py              # K8s operations
-│       │   ├── helm_manager.py              # Helm operations
-│       │   ├── audit_engine.py              # Compliance rule engine
-│       │   ├── fleet_manager.py             # Background fleet observer + cache
-|       |   ├── registry.py
-│       │   └── exceptions.py
-│       └── infrastructure/
-│           ├── k8s_factory.py               # Authenticated K8s client builder
-│           ├── helm_kubeconfig.py           # Temp kubeconfig context manager
-│           ├── cluster_scanner.py           # Parallel cluster health scan
-│           ├── encryption.py               # Fernet key management
-│           └── database.py                 # SQLAlchemy models + SessionLocal
-│
-├── frontend/
-│   ├── index.html                           # Login
-│   ├── dashboard.html                       # K8s Console
-│   ├── helm.html                            # Helm Console
-│   ├── admin.html                           # Admin Console
-│   └── assets/
-│       ├── css/style.css
-│       └── js/
-│           ├── api.js                       # apiCall(), cookie auth, error dispatch
-│           ├── ui.js                        # Shared UI helpers
-│           └── modules/
-│               ├── cluster.js
-│               ├── workloads.js
-│               ├── network_config.js
-│               ├── rbac.js
-│               └── helm.js
-│
-└── data/
-    └── gateway.db                           # SQLite (auto-created on first run)
-```
-
----
-
-## Deployment
+## Deployment (Docker)
 
 ### Prerequisites
 
-- Docker and Docker Compose
-- One or more Kubernetes clusters with Service Accounts and their tokens
-- The CA certificate of each cluster (PEM format)
-- Network connectivity from the gateway container to each cluster's API server (port 6443)
+* **Docker and Docker Compose** installed on your host machine.
+* One or more Kubernetes clusters with dedicated Service Accounts and their tokens.
+* The CA certificate of each cluster (`ca.crt` in PEM format).
+* Network connectivity from the gateway host to each cluster's API server (typically port `6443`).
 
-### Quick Start
+### 🚀 Quick Start (Automated Installer)
+
+The fastest and most reliable way to get the Gateway running is using the interactive bootstrap script. It downloads the necessary files, guides you through the security configuration, and starts the platform automatically.
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/AndreaProzzo21/k8s-cloud-gateway.git
-cd k8s-cloud-gateway
+# Run the official installation script
+curl -sSL [https://raw.githubusercontent.com/AndreaProzzo21/k8s-cloud-gateway/main/install.sh](https://raw.githubusercontent.com/AndreaProzzo21/k8s-cloud-gateway/main/install.sh) | bash
 
-# 2. Configure environment
+```
+
+*The script will prompt you to set a secure `ADMIN_MASTER_KEY` and will optionally auto-generate the encryption keys for you.*
+
+**Next Steps:**
+
+1. Open `http://localhost/admin.html` and log in with your new Admin Master Key.
+2. Register your first cluster and link an admin profile.
+3. Access the main dashboard at `http://localhost`.
+
+### 🛠️ Manual Installation
+
+If you prefer to review the files beforehand or deploy without the script, you can use the pre-configured Docker Compose setup.
+
+1. Download the `deploy/docker-compose-deploy` folder from this repository (or grab the source code `.zip` from the **Releases** page).
+2. Navigate into the folder and prepare your environment variables:
+```bash
 cp .env.example .env
-# Fill in JWT_SECRET_KEY, ADMIN_MASTER_KEY and ENCRYPTION_KEY (see below)
-
-# 3. Build and start the stack
-docker compose up --build -d
-
-# 4. Register a cluster and a profile (see Admin API section above)
-
-# 5. Open the dashboard
-open http://localhost:80
-```
-
-### Architecture: Nginx as Reverse Proxy
-
-The frontend container (Nginx) serves two roles: static file server and reverse proxy. All API calls from the browser go to `http://localhost/api/v1/...` — Nginx forwards them to the backend container on the internal Docker network. **Port 8000 is not exposed to the host.**
 
 ```
-Browser → :80 (Nginx)
-              ├── /api/v1/* → proxy_pass → backend:8000  (internal network only)
-              └── /*        → serve static files
+
+
+3. Edit the `.env` file to configure your environment:
+* **`ADMIN_MASTER_KEY`**: Set a strong password (mandatory).
+* **Networking**: Adjust `GATEWAY_PORT` if needed, and set `CORS_EXTRA_ORIGINS` if you plan to access the API from different external domains.
+* **Security Keys**: If you leave `ENCRYPTION_KEY` and `JWT_SECRET_KEY` blank, the system will intelligently auto-generate them on the first boot to ensure maximum security.
+
+
+4. Pull the official images and start the stack:
+```bash
+docker compose up -d
+
 ```
 
-This means the backend API is never directly reachable from outside the container network, and the browser only ever talks to a single origin — no CORS issues, no exposed internal ports.
 
-The `HttpOnly` cookie set at login is automatically attached by the browser to every subsequent request to the same origin. Because frontend and backend share the same origin through Nginx, the cookie flows transparently without any JavaScript involvement.
+---
 
 ### Environment Variables
 
@@ -329,65 +275,6 @@ ENCRYPTION_KEY=
 # Example: CORS_EXTRA_ORIGINS=https://k8s-gateway.example.com,http://192.168.1.10:30090
 CORS_EXTRA_ORIGINS=
 ```
-
-### Docker Compose (development / build)
-
-Used to build the images locally. The `tester` service runs the test suite and is excluded from normal `up`.
-
-```yaml
-services:
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      target: prod
-    image: aprozzo/k8s-gateway-backend:1.0.0
-    container_name: k8s_api_gateway_v1
-    expose:
-      - "8000"          # internal only — not reachable from the host
-    env_file:
-      - .env
-    volumes:
-      - ./data:/app/data
-      - helm_repos:/tmp/helm_repos
-    networks:
-      - k8s_network
-    restart: always
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    image: aprozzo/k8s-gateway-frontend:1.0.0
-    container_name: k8s_frontend_v1
-    ports:
-      - "80:80"         # single entry point: UI + API proxy
-    networks:
-      - k8s_network
-    restart: always
-    depends_on:
-      - backend
-
-  tester:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      target: test
-    networks:
-      - k8s_network
-    env_file:
-      - .env
-    profiles: ["test"]  # excluded from normal 'docker compose up'
-
-networks:
-  k8s_network:
-    driver: bridge
-
-volumes:
-  helm_repos:
-```
-
-> **Why only one volume?** Helm repository configuration lives under `/tmp/helm_repos/{cluster_id}/` — managed by `HelmManager` and passed to the `helm` binary via `--repository-config` and `--repository-cache`. One named volume persists all per-cluster repo state across restarts.
 
 ---
 
