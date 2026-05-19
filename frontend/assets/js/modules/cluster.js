@@ -102,7 +102,7 @@ async function loadNodes() {
         <div style="display:flex; justify-content:space-between; align-items:flex-end;
                     margin-bottom:25px; border-bottom:2px solid var(--border); padding-bottom:15px;">
             <div>
-                <h2 style="margin:0; color:var(--text-main); letter-spacing:-0.02em;">Cluster Overview</h2>
+                <h2 class="page-title">Cluster Overview</h2>
                 <p style="margin:5px 0 0; font-size:0.85rem; color:var(--text-muted);">
                     Capacity and schedulable resources across the infrastructure.
                 </p>
@@ -311,7 +311,7 @@ async function loadNamespace() {
         let html = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:2px solid var(--border); padding-bottom:15px;">
                 <div>
-                    <h2 style="margin:0; color:var(--text-main);">Cluster Namespaces</h2>
+                    <h2 class="page-title">Cluster Namespaces</h2>
                     <p style="margin:5px 0 0; font-size:0.85rem; color:var(--text-muted);">
                         Virtual clusters used to isolate groups of resources.
                     </p>
@@ -392,7 +392,7 @@ async function loadPV() {
         const data = await apiCall('/cluster/volumes');
         let html = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                <h2 style="margin:0;">Persistent Volumes (Global)</h2>
+                <h2 class="page-title"">Persistent Volumes (Global)</h2>
             </div>
             <table class="data-table">
                 <thead>
@@ -492,7 +492,7 @@ async function loadStorageClasses() {
         
         let html = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                <h2 style="margin:0;">Storage Classes</h2>
+                <h2 class="page-title">Storage Classes</h2>
                 <small style="color:var(--text-muted)">Global Cluster Resources</small>
             </div>
             <table class="data-table">

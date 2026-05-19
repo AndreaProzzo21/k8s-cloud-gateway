@@ -839,6 +839,27 @@
     color: #d93025;
     border-color: #f5c6cb;
 }
+
+.page-title {
+    font-size: 1.5rem;          /* Dimensione bilanciata */
+    font-weight: 700;           /* Grassetto deciso */
+    color: #1e293b;             /* Blu scuro ardesia (molto professionale) */
+    letter-spacing: -0.025em;   /* Compattazione moderna dei caratteri */
+    margin-bottom: 0.5rem;      /* Spazio dal sottotitolo/descrizione */
+    display: flex;
+    align-items: center;
+    gap: 12px;                  /* Spazio tra il bordo e il testo */
+}
+
+/* Un piccolo accento verticale per dare struttura senza sfarzo */
+.page-title::before {
+    content: "";
+    display: inline-block;
+    width: 4px;
+    height: 1.2em;              /* Si adatta all'altezza del testo */
+    background-color: #3b82f6;  /* Blu primario (puoi cambiarlo nel colore del tuo brand) */
+    border-radius: 4px;         /* Arrotondato per un look moderno */
+}
     </style>
 </head>
 <body>

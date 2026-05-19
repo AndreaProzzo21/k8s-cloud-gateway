@@ -616,6 +616,10 @@ function showInstallForm(chartRef, version) {
                        font-family:monospace; font-size:0.8rem; box-sizing:border-box;"></textarea>
 
             <div style="display:flex; gap:10px; margin-top:14px;">
+                <button onclick="lintChart('${chartRef}', '${version}')" 
+                                class="btn-small table-btn">
+                    <i class="fas fa-stethoscope"></i>
+                </button>
                 <button onclick="executeInstall('${chartRef}')" class="btn-action" style="flex:1;">
                     <i class="fas fa-paper-plane"></i> Deploy Chart
                 </button>
@@ -670,114 +674,6 @@ async function executeInstall(chartRef) {
 
 
 // ---------------------------------------------------------------------------
-// DEPLOY FROM ZIP
-// ---------------------------------------------------------------------------
-
-function showZipUpload() {
-    window.currentView = 'zip';
-    const resArea = document.getElementById('resultArea');
-    document.getElementById('controlsContainer').style.display = 'none';
-
-    resArea.innerHTML = `
-        <div class="deploy-container">
-            <h2>Deploy from ZIP</h2>
-            <div class="info-note" style="background:rgba(var(--accent-rgb),0.08); border-left:4px solid var(--accent);
-                 padding:12px 14px; border-radius:6px; margin-bottom:20px; font-size:0.85rem; line-height:1.5; color:var(--text-secondary);">
-                <i class="fas fa-info-circle" style="color:var(--accent); margin-right:8px;"></i>
-                Upload a ZIP archive containing a Helm chart directory (must include <code>Chart.yaml</code>).
-                Helm will run <code>upgrade --install</code> on the extracted chart.
-            </div>
-
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px;">
-                <div>
-                    <label style="font-size:0.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:5px;">Release Name *</label>
-                    <input type="text" id="zip_release_name" placeholder="my-release"
-                        style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); font-size:0.85rem; box-sizing:border-box;">
-                </div>
-                <div>
-                    <label style="font-size:0.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:5px;">Namespace</label>
-                    <input type="text" id="zip_namespace" value="${window.currentNamespace}"
-                        style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); font-size:0.85rem; box-sizing:border-box;">
-                </div>
-            </div>
-
-            <div class="upload-zone" style="border:2px dashed var(--border); padding:28px; border-radius:12px; text-align:center; margin-bottom:16px; cursor:pointer;"
-                 onclick="document.getElementById('zipFileInput').click()">
-                <i class="fas fa-file-archive fa-2x" style="color:var(--accent); margin-bottom:10px;"></i><br>
-                <span style="font-size:0.88rem; color:var(--text-secondary)">Click to select ZIP file</span>
-                <input type="file" id="zipFileInput" accept=".zip" style="display:none" onchange="handleZipSelection(event)">
-                <div id="zipFileDisplay" style="margin-top:10px; font-size:0.75rem; color:var(--text-muted)">No file selected</div>
-            </div>
-
-            <label style="font-size:0.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:5px;">
-                Values Override (JSON)
-                <span style="font-weight:400; font-size:0.7rem; text-transform:none; margin-left:8px; color:#94a3b8">optional</span>
-            </label>
-            <textarea id="zip_values" rows="4" placeholder='{ "replicaCount": 1 }'
-                style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border);
-                       font-family:monospace; font-size:0.8rem; box-sizing:border-box; margin-bottom:14px;"></textarea>
-            
-            <button onclick="lintZipChart()" class="btn-action" id="btnLintZip" style="background:#fff; color:var(--accent); border:1px solid var(--accent);">
-                <i class="fas fa-stethoscope"></i> Lint
-            </button>
-
-            <button onclick="executeZipDeploy()" class="btn-action" style="width:50%;" id="zipDeployBtn">
-                <i class="fas fa-upload"></i> Upload & Deploy
-            </button>
-            <div id="zip-result" style="margin-top:14px;"></div>
-        </div>`;
-}
-
-function handleZipSelection(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    document.getElementById('zipFileDisplay').textContent = `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
-}
-
-async function executeZipDeploy() {
-    const releaseName = document.getElementById('zip_release_name')?.value?.trim();
-    const namespace   = document.getElementById('zip_namespace')?.value?.trim() || window.currentNamespace;
-    const fileInput   = document.getElementById('zipFileInput');
-    const valuesRaw   = document.getElementById('zip_values')?.value?.trim();
-    const resultDiv   = document.getElementById('zip-result');
-
-    if (!releaseName) { showError("Release name is required."); return; }
-    if (!fileInput.files[0]) { showError("Please select a ZIP file."); return; }
-
-    let valuesJson = null;
-    if (valuesRaw) {
-        try { JSON.parse(valuesRaw); valuesJson = valuesRaw; }
-        catch { showError("Invalid JSON in Values Override field."); return; }
-    }
-
-    const btn = document.getElementById('zipDeployBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading & Deploying...';
-    resultDiv.innerHTML = '';
-
-    try {
-        const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
-
-        const qs = new URLSearchParams({ release_name: releaseName });
-        if (valuesJson) qs.set('values_json', valuesJson);
-
-        const url = `/helm/namespaces/${namespace}/releases/${releaseName}/from-zip?${qs}`;
-        const result = await apiCall(url, 'POST', false, formData);
-
-        resultDiv.innerHTML = _renderResultBox(result, `Chart deployed as "${releaseName}" in namespace "${namespace}".`);
-        if (result.success) setTimeout(() => loadReleases(), 2000);
-
-    } catch (err) {
-        resultDiv.innerHTML = _renderResultBox({ success: false, stderr: err.message });
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-upload"></i> Upload & Deploy';
-    }
-}
-
-
-// ---------------------------------------------------------------------------
 // REPOSITORIES
 // ---------------------------------------------------------------------------
 
@@ -793,7 +689,7 @@ async function loadRepositories() {
 
         let html = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-                <h2 style="margin:0;">Helm Repositories</h2>
+                <h2 class="page-title"">Helm Repositories</h2>
                 <div style="display:flex; gap:10px;">
                     <button onclick="updateRepos()" class="btn-action" id="btnUpdateRepos" title="helm repo update">
                         <i class="fas fa-sync"></i> Update All
@@ -985,9 +881,146 @@ function searchInRepo(repoName) {
     }, 100);
 }
 
+// ---------------------------------------------------------------------------
+// DEPLOY FROM ZIP — aligned with updated backend
+// ---------------------------------------------------------------------------
+
+// Accepted formats: all formats supported by the backend unpacker.
+// Keep in sync with _ALLOWED in helm_routes.py.
+const _ALLOWED_CHART_EXTENSIONS = [".zip", ".tgz", ".tar.gz", ".tar.bz2", ".tar.xz"];
+
+function showZipUpload() {
+    window.currentView = 'zip';
+    const resArea = document.getElementById('resultArea');
+    document.getElementById('controlsContainer').style.display = 'none';
+
+    resArea.innerHTML = `
+        <div class="deploy-container">
+            <h2>Deploy from package</h2>
+            <div class="info-note" style="background:rgba(var(--accent-rgb),0.08); border-left:4px solid var(--accent);
+                 padding:12px 14px; border-radius:6px; margin-bottom:20px; font-size:0.85rem; line-height:1.5; color:var(--text-secondary);">
+                <i class="fas fa-info-circle" style="color:var(--accent); margin-right:8px;"></i>
+                Upload an archive containing a Helm chart directory (must include <code>Chart.yaml</code>).
+                Supported formats: <code>.zip</code> &nbsp;<code>.tgz</code> &nbsp;<code>.tar.gz</code> &nbsp;<code>.tar.bz2</code> &nbsp;<code>.tar.xz</code>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px;">
+                <div>
+                    <label style="font-size:0.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:5px;">Release Name *</label>
+                    <input type="text" id="zip_release_name" placeholder="my-release"
+                        style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); font-size:0.85rem; box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="font-size:0.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:5px;">Namespace</label>
+                    <input type="text" id="zip_namespace" value="${window.currentNamespace}"
+                        style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); font-size:0.85rem; box-sizing:border-box;">
+                </div>
+            </div>
+
+            <div class="upload-zone" style="border:2px dashed var(--border); padding:28px; border-radius:12px; text-align:center; margin-bottom:16px; cursor:pointer;"
+                 onclick="document.getElementById('zipFileInput').click()">
+                <i class="fas fa-file-archive fa-2x" style="color:var(--accent); margin-bottom:10px;"></i><br>
+                <span style="font-size:0.88rem; color:var(--text-secondary)">Click to select a package</span>
+                <input type="file" id="zipFileInput"
+                       accept=".zip,.tgz,.tar.gz,.tar.bz2,.tar.xz"
+                       style="display:none"
+                       onchange="handleZipSelection(event)">
+                <div id="zipFileDisplay" style="margin-top:10px; font-size:0.75rem; color:var(--text-muted)">No file selected</div>
+            </div>
+
+            <label style="font-size:0.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:5px;">
+                Values Override (JSON)
+                <span style="font-weight:400; font-size:0.7rem; text-transform:none; margin-left:8px; color:#94a3b8">optional</span>
+            </label>
+            <textarea id="zip_values" rows="4" placeholder='{ "replicaCount": 1 }'
+                style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border);
+                       font-family:monospace; font-size:0.8rem; box-sizing:border-box; margin-bottom:14px;"></textarea>
+
+            <button onclick="lintZipChart()" class="btn-action" id="btnLintZip"
+                    style="background:#fff; color:var(--accent); border:1px solid var(--accent);">
+                <i class="fas fa-stethoscope"></i> Lint
+            </button>
+            <button onclick="executeZipDeploy()" class="btn-action" style="width:50%;" id="zipDeployBtn">
+                <i class="fas fa-upload"></i> Upload & Deploy
+            </button>
+            <div id="zip-result" style="margin-top:14px;"></div>
+        </div>`;
+}
+
+function handleZipSelection(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Client-side format check — mirrors backend _ALLOWED list
+    const name = file.name.toLowerCase();
+    const allowed = _ALLOWED_CHART_EXTENSIONS.some(ext => name.endsWith(ext));
+    if (!allowed) {
+        showError(`Unsupported format. Allowed: ${_ALLOWED_CHART_EXTENSIONS.join(', ')}`);
+        event.target.value = '';
+        document.getElementById('zipFileDisplay').textContent = 'No file selected';
+        return;
+    }
+
+    document.getElementById('zipFileDisplay').textContent =
+        `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+}
+
+async function executeZipDeploy() {
+    const releaseName = document.getElementById('zip_release_name')?.value?.trim();
+    const namespace   = document.getElementById('zip_namespace')?.value?.trim() || window.currentNamespace;
+    const fileInput   = document.getElementById('zipFileInput');
+    const valuesRaw   = document.getElementById('zip_values')?.value?.trim();
+    const resultDiv   = document.getElementById('zip-result');
+
+    if (!releaseName) { showError("Release name is required."); return; }
+    if (!fileInput.files[0]) { showError("Please select a package file."); return; }
+
+    // Validate JSON values before sending
+    let valuesJson = null;
+    if (valuesRaw) {
+        try {
+            JSON.parse(valuesRaw);
+            valuesJson = valuesRaw;
+        } catch {
+            showError("Invalid JSON in Values Override field.");
+            return;
+        }
+    }
+
+    const btn = document.getElementById('zipDeployBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading & Deploying...';
+    resultDiv.innerHTML = '';
+
+    try {
+        // FIX: values_json and other options are Query parameters on the backend,
+        // NOT FormData fields. Only the file itself goes in FormData.
+        const qs = new URLSearchParams({
+            atomic:           'false',
+            wait:             'false',
+            create_namespace: 'true',
+        });
+        if (valuesJson) qs.set('values_json', valuesJson);
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
+        const url = `/helm/namespaces/${namespace}/releases/${releaseName}/package?${qs}`;
+        const result = await apiCall(url, 'POST', false, formData);
+
+        resultDiv.innerHTML = _renderResultBox(result, `Chart deployed as "${releaseName}" in namespace "${namespace}".`);
+        if (result.success) setTimeout(() => loadReleases(), 2000);
+
+    } catch (err) {
+        resultDiv.innerHTML = _renderResultBox({ success: false, stderr: err.message });
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-upload"></i> Upload & Deploy';
+    }
+}
 
 // ---------------------------------------------------------------------------
-// LINT — da chart ref (usato nella search)
+// LINT — remote chart reference
 // ---------------------------------------------------------------------------
 
 async function lintChart(chartRef, version) {
@@ -999,7 +1032,10 @@ async function lintChart(chartRef, version) {
         <div id="lint-result-panel" style="margin-top:16px; padding:16px; background:#f8fafc;
              border-radius:10px; border:1px solid var(--border);">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <b style="font-size:0.9rem;"><i class="fas fa-stethoscope" style="color:var(--accent); margin-right:8px;"></i>Lint: ${chartRef}</b>
+                <b style="font-size:0.9rem;">
+                    <i class="fas fa-stethoscope" style="color:var(--accent); margin-right:8px;"></i>
+                    Lint: ${chartRef}
+                </b>
                 <button onclick="document.getElementById('lint-result-panel').remove()"
                         style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1.1rem;">&times;</button>
             </div>
@@ -1007,10 +1043,16 @@ async function lintChart(chartRef, version) {
         </div>`);
 
     try {
-        const qs = version ? `?chart_ref=${encodeURIComponent(chartRef)}&strict=false&version=${encodeURIComponent(version)}` 
-                           : `?chart_ref=${encodeURIComponent(chartRef)}&strict=false`;
-        const result = await apiCall(`/helm/charts/lint${qs}`);
+        const fd = new FormData();
+        fd.append('chart_ref', chartRef);
+        if (version) fd.append('version', version);
+        fd.append('strict', 'false');
+
+        // FIX: backend returns HTTP 422 (not 200) when lint has errors.
+        // _callLint handles both success (200) and lint-error (422) responses.
+        const result = await _callLint(fd);
         document.getElementById('lint-result-content').innerHTML = _renderLintResult(result);
+
     } catch (err) {
         document.getElementById('lint-result-content').innerHTML =
             `<p style="color:#ef4444; font-size:0.85rem;">Error: ${err.message}</p>`;
@@ -1018,14 +1060,14 @@ async function lintChart(chartRef, version) {
 }
 
 // ---------------------------------------------------------------------------
-// LINT — da ZIP (aggiunto al form showZipUpload)
+// LINT — local package upload
 // ---------------------------------------------------------------------------
 
 async function lintZipChart() {
     const fileInput = document.getElementById('zipFileInput');
     const resultDiv = document.getElementById('zip-result');
 
-    if (!fileInput?.files[0]) { showError("Select a ZIP file first."); return; }
+    if (!fileInput?.files[0]) { showError("Select a file first."); return; }
 
     const btn = document.getElementById('btnLintZip');
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Linting...'; }
@@ -1034,17 +1076,72 @@ async function lintZipChart() {
     try {
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
-        const result = await apiCall('/helm/charts/lint-zip?strict=false', 'POST', false, formData);
+        formData.append('strict', 'false');
+
+        // FIX: use _callLint to handle both 200 and 422 responses correctly
+        const result = await _callLint(formData);
         resultDiv.innerHTML = _renderLintResult(result);
+
     } catch (err) {
-        resultDiv.innerHTML = _renderResultBox({ success: false, stderr: err.message });
+        resultDiv.innerHTML = `<p style="color:#ef4444; font-size:0.85rem;">Error: ${err.message}</p>`;
     } finally {
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-stethoscope"></i> Lint'; }
     }
 }
 
 // ---------------------------------------------------------------------------
-// LINT — renderer condiviso
+// _callLint — shared fetch wrapper for the lint endpoint
+//
+// The backend returns:
+//   HTTP 200  → lint passed (no errors, possibly warnings)
+//   HTTP 422  → lint ran but found errors — body is a structured JSON detail
+//   HTTP 4xx/5xx → unexpected failure
+//
+// apiCall() throws on any non-2xx status, so we can't use it for 422
+// (which carries useful structured data we want to render, not discard).
+// This wrapper calls fetch directly and normalises both cases into the same
+// result shape that _renderLintResult expects.
+// ---------------------------------------------------------------------------
+
+async function _callLint(formData) {
+    const response = await fetch(`${API_BASE}/helm/charts/lint`, {
+        method:      'POST',
+        credentials: 'include',
+        body:        formData,
+        // Do NOT set Content-Type — browser sets it automatically with boundary
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (response.status === 422) {
+        // Backend sends: { detail: { message, stdout, stderr, has_errors, has_warnings } }
+        const detail = data.detail || {};
+        return {
+            success:      false,
+            stdout:       detail.stdout  || '',
+            stderr:       detail.stderr  || '',
+            has_errors:   detail.has_errors   ?? true,
+            has_warnings: detail.has_warnings ?? false,
+        };
+    }
+
+    if (!response.ok) {
+        // Unexpected error — surface the detail message
+        throw new Error(data.detail?.message || data.detail || `HTTP ${response.status}`);
+    }
+
+    // HTTP 200 — lint passed
+    return {
+        success:      true,
+        stdout:       data.stdout  || '',
+        stderr:       data.stderr  || '',
+        has_errors:   false,
+        has_warnings: data.has_warnings ?? false,
+    };
+}
+
+// ---------------------------------------------------------------------------
+// _renderLintResult — shared renderer (unchanged)
 // ---------------------------------------------------------------------------
 
 function _renderLintResult(result) {
@@ -1052,11 +1149,13 @@ function _renderLintResult(result) {
     const hasWarnings = result.has_warnings;
     const output      = result.stdout || result.stderr || "(no output)";
 
-    const color  = hasErrors ? "#ef4444" : hasWarnings ? "#f59e0b" : "#10b981";
-    const icon   = hasErrors ? "fa-times-circle" : hasWarnings ? "fa-exclamation-triangle" : "fa-check-circle";
-    const label  = hasErrors ? "Lint failed — errors found"
-                 : hasWarnings ? "Lint passed with warnings"
-                 : "Lint passed — no issues found";
+    const color = hasErrors ? "#ef4444" : hasWarnings ? "#f59e0b" : "#10b981";
+    const icon  = hasErrors ? "fa-times-circle"
+                : hasWarnings ? "fa-exclamation-triangle"
+                : "fa-check-circle";
+    const label = hasErrors   ? "Lint failed — errors found"
+                : hasWarnings ? "Lint passed with warnings"
+                : "Lint passed — no issues found";
 
     return `
         <div style="margin-bottom:10px; display:flex; align-items:center; gap:8px;">
@@ -1067,3 +1166,5 @@ function _renderLintResult(result) {
                     border-radius:8px; padding:14px; overflow-x:auto;
                     max-height:260px; white-space:pre-wrap;">${output}</pre>`;
 }
+
+
