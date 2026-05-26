@@ -3,7 +3,7 @@ data/
 *.db                 # File database SQLite
 *.db-journal         # File temp di SQLite
 
-# --- Security & Environment ---
+# --- Security & Environment --
 .env               
 .env.local
 
