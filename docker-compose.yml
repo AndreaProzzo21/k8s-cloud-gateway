@@ -7,7 +7,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: prod
-    image: aprozzo/k8s-gateway-backend:1.0.0
+    image: aprozzo/k8s-gateway-backend:latest
     container_name: k8s_api_gateway_v1
     # La porta 8000 non è più esposta all'esterno (sicurezza!), 
     # ma è accessibile solo dal frontend tramite rete interna.
@@ -27,7 +27,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: aprozzo/k8s-gateway-frontend:1.0.0
+    image: aprozzo/k8s-gateway-frontend:latest
     container_name: k8s_frontend_v1
     ports:
       - "80:80" # L'unico punto di ingresso per l'utente
