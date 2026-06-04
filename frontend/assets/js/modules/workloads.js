@@ -171,7 +171,7 @@ async function viewLogs(name, btn) {
                 <td colspan="6">
                     <div class="log-container">
                         <div style="display:flex; justify-content:space-between; color:#94a3b8; margin-bottom:5px;">
-                            <small>Streaming logs for <b>${name}</b>...</small>
+                            <small>Streaming logs for <b>${name}</b> (newest first)...</small>
                             <button onclick="this.closest('tr').remove()" style="background:none; border:none; color:#94a3b8; cursor:pointer;">&times;</button>
                         </div>
                         <pre id="pre-${name}">Loading...</pre>
@@ -180,10 +180,21 @@ async function viewLogs(name, btn) {
             </tr>`);
 
         const logs = await apiCall(`/namespaces/${window.currentNamespace}/pods/${name}/logs?tail=50`, 'GET', true);
-        document.getElementById(`pre-${name}`).textContent = logs || "No logs available.";
+        
+        if (logs) {
+            // Logica di inversione:
+            // 1. .trim() rimuove spazi vuoti inutili all'inizio/fine
+            // 2. .split('\n') crea un array di righe
+            // 3. .reverse() inverte l'ordine dell'array
+            // 4. .join('\n') ricompone la stringa
+            const reversedLogs = logs.trim().split('\n').reverse().join('\n');
+            document.getElementById(`pre-${name}`).textContent = reversedLogs;
+        } else {
+            document.getElementById(`pre-${name}`).textContent = "No logs available.";
+        }
         
     } catch (err) {
-        showError(err.message)
+        showError(err.message);
         document.getElementById(`logs-${name}`)?.remove();
     }
 }

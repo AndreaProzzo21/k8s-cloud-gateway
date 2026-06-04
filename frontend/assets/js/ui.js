@@ -211,7 +211,7 @@ function showManualInput() {
 
             <input type="text" id="manualNS" value="${window.currentNamespace || ''}" 
                 placeholder="Enter authorized namespace..." 
-                style="width: 190px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-input, #fff); font-size: 0.82rem; font-family: monospace; outline: none; box-sizing: border-box;"
+                style="width: 190px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-input, #fff); font-size: 0.82rem; font-family: JetBrains Mono; outline: none; box-sizing: border-box;"
                 onkeydown="if(event.key === 'Enter') updateNamespaceContext(this.value)">
             
             <button onclick="updateNamespaceContext(document.getElementById('manualNS').value)" 
@@ -443,7 +443,7 @@ function renderLabelFilter(visible = false) {
                 </ul>
             </div>
             <input type="text" id="labelFilter" placeholder="Filter by label..." 
-                style="width: 190px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-input, #fff); font-size: 0.82rem; font-family: monospace; outline: none; box-sizing: border-box;"
+                style="width: 190px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-input, #fff); font-size: 0.82rem; font-family: JetBrains Mono; outline: none; box-sizing: border-box;"
                 onkeydown="if(event.key==='Enter') refreshCurrentView()">
         </div>
     `;
