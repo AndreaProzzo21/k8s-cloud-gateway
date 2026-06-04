@@ -8,6 +8,7 @@ data/
 .env.local
 
 
+
 # --- Backend / Python ---
 __pycache__/
 *.py[cod]
