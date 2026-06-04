@@ -890,10 +890,6 @@
                 <li id="menu-audit" onclick="setActive(this, 'audit')">
                     <i class="fas fa-clipboard-check"></i> Audit Rules
                 </li>
-                <li id="menu-observers" onclick="setActive(this, 'observers')">
-                    <i class="fas fa-eye"></i> Observers
-                    <span class="sidebar-badge badge-soon">Soon</span>
-                </li>
             </ul>
         </aside>
 
@@ -1033,7 +1029,7 @@
         document.querySelectorAll('.sidebar li').forEach(li => li.classList.remove('active'));
         el.classList.add('active');
         currentView = view;
-        ({ fleet: renderFleet, clusters: renderClusters, profiles: renderProfiles, audit: renderAudit, observers: renderObservers })[view]?.();
+        ({ fleet: renderFleet, clusters: renderClusters, profiles: renderProfiles, audit: renderAudit })[view]?.();
     }
 
     async function loadBadges() {
