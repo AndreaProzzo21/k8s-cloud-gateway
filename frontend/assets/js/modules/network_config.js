@@ -27,8 +27,11 @@ async function loadConfigMaps() {
                 <tbody>`;
         
         data.forEach(cm => {
+            // Modifica applicata qui: Contenitore flex con a capo automatico e stile allineato ai secret
             const keysHtml = cm.keys.length > 0 
-                ? cm.keys.map(k => `<code class="key-badge">${k}</code>`).join('')
+                ? `<div style="display: flex; flex-wrap: wrap; gap: 6px;">` + 
+                  cm.keys.map(k => `<span class="key-badge-secret"><i class="fas fa-file-code" style="margin-right: 4px;"></i>${k}</span>`).join('') +
+                  `</div>`
                 : '<span class="none-text">No data</span>';
 
             html += `
