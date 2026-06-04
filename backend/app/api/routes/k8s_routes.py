@@ -490,3 +490,178 @@ async def delete_cluster_storage_class(
 ):
     """Elimina una StorageClass specifica a livello di cluster."""
     return await _run(manager.delete_storage_class, name)
+
+# ---------------------------------------------------------------------------
+# DAEMONSETS
+# ---------------------------------------------------------------------------
+
+@router.get("/namespaces/{namespace}/daemonsets")
+async def get_daemonsets(
+    namespace: str,
+    label_selector: str = None,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elenca i DaemonSet nel namespace con stato di scheduling sui nodi."""
+    return await _run(manager.list_daemonsets, namespace, label_selector)
+
+@router.delete("/namespaces/{namespace}/daemonsets/{name}")
+async def delete_daemonset(
+    namespace: str,
+    name: str,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elimina un DaemonSet dal namespace."""
+    return await _run(manager.delete_daemonset, name, namespace)
+
+
+# ---------------------------------------------------------------------------
+# CRONJOBS
+# ---------------------------------------------------------------------------
+
+@router.get("/namespaces/{namespace}/cronjobs")
+async def get_cronjobs(
+    namespace: str,
+    label_selector: str = None,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elenca i CronJob nel namespace con schedule e stato ultima esecuzione."""
+    return await _run(manager.list_cronjobs, namespace, label_selector)
+
+@router.delete("/namespaces/{namespace}/cronjobs/{name}")
+async def delete_cronjob(
+    namespace: str,
+    name: str,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elimina un CronJob dal namespace."""
+    return await _run(manager.delete_cronjob, name, namespace)
+
+
+# ---------------------------------------------------------------------------
+# JOBS
+# ---------------------------------------------------------------------------
+
+@router.get("/namespaces/{namespace}/jobs")
+async def get_jobs(
+    namespace: str,
+    label_selector: str = None,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elenca i Job nel namespace con contatori succeeded/failed/active."""
+    return await _run(manager.list_jobs, namespace, label_selector)
+
+@router.delete("/namespaces/{namespace}/jobs/{name}")
+async def delete_job(
+    namespace: str,
+    name: str,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elimina un Job e i Pod figli (propagation Foreground)."""
+    return await _run(manager.delete_job, name, namespace)
+
+
+# ---------------------------------------------------------------------------
+# HORIZONTAL POD AUTOSCALERS
+# ---------------------------------------------------------------------------
+
+@router.get("/namespaces/{namespace}/hpa")
+async def get_hpas(
+    namespace: str,
+    label_selector: str = None,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elenca gli HPA nel namespace con target, min/max replicas e stato corrente."""
+    return await _run(manager.list_hpas, namespace, label_selector)
+
+@router.delete("/namespaces/{namespace}/hpa/{name}")
+async def delete_hpa(
+    namespace: str,
+    name: str,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elimina un HorizontalPodAutoscaler dal namespace."""
+    return await _run(manager.delete_hpa, name, namespace)
+
+
+# ---------------------------------------------------------------------------
+# NETWORK POLICIES
+# ---------------------------------------------------------------------------
+
+@router.get("/namespaces/{namespace}/networkpolicies")
+async def get_network_policies(
+    namespace: str,
+    label_selector: str = None,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elenca le NetworkPolicy nel namespace con pod selector e tipo di regole."""
+    return await _run(manager.list_network_policies, namespace, label_selector)
+
+@router.delete("/namespaces/{namespace}/networkpolicies/{name}")
+async def delete_network_policy(
+    namespace: str,
+    name: str,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elimina una NetworkPolicy dal namespace."""
+    return await _run(manager.delete_network_policy, name, namespace)
+
+
+# ---------------------------------------------------------------------------
+# CLUSTER ROLES (cluster-wide)
+# ---------------------------------------------------------------------------
+
+@router.get("/cluster/clusterroles")
+async def get_cluster_roles(
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elenca i ClusterRole a livello cluster."""
+    return await _run(manager.list_cluster_roles)
+
+@router.delete("/cluster/clusterroles/{name}")
+async def delete_cluster_role(
+    name: str,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elimina un ClusterRole. Attenzione: operazione distruttiva per i binding associati."""
+    return await _run(manager.delete_cluster_role, name)
+
+
+# ---------------------------------------------------------------------------
+# CLUSTER ROLE BINDINGS (cluster-wide)
+# ---------------------------------------------------------------------------
+
+@router.get("/cluster/clusterrolebindings")
+async def get_cluster_role_bindings(
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elenca i ClusterRoleBinding a livello cluster con subject e role associati."""
+    return await _run(manager.list_cluster_role_bindings)
+
+@router.delete("/cluster/clusterrolebindings/{name}")
+async def delete_cluster_role_binding(
+    name: str,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    """Elimina un ClusterRoleBinding."""
+    return await _run(manager.delete_cluster_role_binding, name)
+
+@router.get("/namespaces/{namespace}/daemonsets/{name}")
+async def get_daemonset_details(
+    namespace: str, name: str,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    return await _run(manager.get_daemonset_by_name, name, namespace)
+
+@router.get("/namespaces/{namespace}/jobs/{name}")
+async def get_job_details(
+    namespace: str, name: str,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    return await _run(manager.get_job_by_name, name, namespace)
+
+@router.get("/namespaces/{namespace}/cronjobs/{name}")
+async def get_cronjob_details(
+    namespace: str, name: str,
+    manager: CoreManager = Depends(get_current_core_manager)
+):
+    return await _run(manager.get_cronjob_by_name, name, namespace)

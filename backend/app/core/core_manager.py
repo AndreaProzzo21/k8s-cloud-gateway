@@ -26,6 +26,8 @@ class CoreManager:
         self.networking_v1 = k8s_apis["networking_v1"]
         self.storage_v1 = k8s_apis["storage_v1"]
         self.auth_v1 = k8s_apis["authorization_v1"]
+        self.batch_v1 = k8s_apis["batch_v1"]
+        self.autoscaling_v2 = k8s_apis["autoscaling_v2"]
         self.api_client = self.core_v1.api_client
 
 
@@ -843,6 +845,258 @@ class CoreManager:
             return {"status": "success", "message": f"StorageClass '{name}' eliminata."}
         except Exception as e:
             self._handle_exception(e, f"Eliminazione StorageClass '{name}'")
+
+    # --- DAEMONSETS ---
+
+    def list_daemonsets(self, namespace: str, label_selector: str = None):
+        try:
+            ds_list = self.apps_v1.list_namespaced_daemon_set(
+                namespace,
+                label_selector=label_selector
+            )
+            return [{
+                "name": ds.metadata.name,
+                "desired": ds.status.desired_number_scheduled,
+                "ready": ds.status.number_ready,
+                "available": ds.status.number_available or 0,
+                "node_selector": ds.spec.template.spec.node_selector or {},
+                "labels": ds.metadata.labels or {},
+                "creation_timestamp": ds.metadata.creation_timestamp.isoformat()
+            } for ds in ds_list.items]
+        except Exception as e:
+            self._handle_exception(e, f"List DaemonSets in {namespace}")
+
+    def delete_daemonset(self, name: str, namespace: str):
+        try:
+            self.apps_v1.delete_namespaced_daemon_set(name=name, namespace=namespace)
+            return {"status": "success", "message": f"DaemonSet '{name}' eliminato."}
+        except Exception as e:
+            self._handle_exception(e, f"Eliminazione DaemonSet '{name}'")
+
+
+    # --- CRONJOBS ---
+
+    def list_cronjobs(self, namespace: str, label_selector: str = None):
+        try:
+            cj_list = self.batch_v1.list_namespaced_cron_job(
+                namespace,
+                label_selector=label_selector
+            )
+            return [{
+                "name": cj.metadata.name,
+                "schedule": cj.spec.schedule,
+                "suspend": cj.spec.suspend or False,
+                "active": len(cj.status.active or []),
+                "last_schedule": cj.status.last_schedule_time.isoformat() if cj.status.last_schedule_time else None,
+                "labels": cj.metadata.labels or {},
+                "creation_timestamp": cj.metadata.creation_timestamp.isoformat()
+            } for cj in cj_list.items]
+        except Exception as e:
+            self._handle_exception(e, f"List CronJobs in {namespace}")
+
+    def delete_cronjob(self, name: str, namespace: str):
+        try:
+            self.batch_v1.delete_namespaced_cron_job(name=name, namespace=namespace)
+            return {"status": "success", "message": f"CronJob '{name}' eliminato."}
+        except Exception as e:
+            self._handle_exception(e, f"Eliminazione CronJob '{name}'")
+
+
+    # --- JOBS ---
+
+    def list_jobs(self, namespace: str, label_selector: str = None):
+        try:
+            job_list = self.batch_v1.list_namespaced_job(
+                namespace,
+                label_selector=label_selector
+            )
+            return [{
+                "name": job.metadata.name,
+                "completions": job.spec.completions,
+                "succeeded": job.status.succeeded or 0,
+                "failed": job.status.failed or 0,
+                "active": job.status.active or 0,
+                "start_time": job.status.start_time.isoformat() if job.status.start_time else None,
+                "completion_time": job.status.completion_time.isoformat() if job.status.completion_time else None,
+                "labels": job.metadata.labels or {},
+                "creation_timestamp": job.metadata.creation_timestamp.isoformat()
+            } for job in job_list.items]
+        except Exception as e:
+            self._handle_exception(e, f"List Jobs in {namespace}")
+
+    def delete_job(self, name: str, namespace: str):
+        try:
+            # propagation_policy Foreground elimina anche i Pod figli
+            self.batch_v1.delete_namespaced_job(
+                name=name,
+                namespace=namespace,
+                propagation_policy="Foreground"
+            )
+            return {"status": "success", "message": f"Job '{name}' eliminato."}
+        except Exception as e:
+            self._handle_exception(e, f"Eliminazione Job '{name}'")
+
+
+    # --- HORIZONTAL POD AUTOSCALERS ---
+
+    def list_hpas(self, namespace: str, label_selector: str = None):
+        try:
+            hpa_list = self.autoscaling_v2.list_namespaced_horizontal_pod_autoscaler(
+                namespace,
+                label_selector=label_selector
+            )
+            return [{
+                "name": hpa.metadata.name,
+                "target": hpa.spec.scale_target_ref.name,
+                "target_kind": hpa.spec.scale_target_ref.kind,
+                "min_replicas": hpa.spec.min_replicas,
+                "max_replicas": hpa.spec.max_replicas,
+                "current_replicas": hpa.status.current_replicas,
+                "desired_replicas": hpa.status.desired_replicas,
+                "labels": hpa.metadata.labels or {},
+                "creation_timestamp": hpa.metadata.creation_timestamp.isoformat()
+            } for hpa in hpa_list.items]
+        except Exception as e:
+            self._handle_exception(e, f"List HPAs in {namespace}")
+
+    def delete_hpa(self, name: str, namespace: str):
+        try:
+            self.autoscaling_v2.delete_namespaced_horizontal_pod_autoscaler(
+                name=name,
+                namespace=namespace
+            )
+            return {"status": "success", "message": f"HPA '{name}' eliminato."}
+        except Exception as e:
+            self._handle_exception(e, f"Eliminazione HPA '{name}'")
+
+
+    # --- NETWORK POLICIES ---
+
+    def list_network_policies(self, namespace: str, label_selector: str = None):
+        try:
+            np_list = self.networking_v1.list_namespaced_network_policy(
+                namespace,
+                label_selector=label_selector
+            )
+            return [{
+                "name": np.metadata.name,
+                "pod_selector": np.spec.pod_selector.match_labels or {},
+                "policy_types": np.spec.policy_types or [],
+                "ingress_rules": len(np.spec.ingress or []),
+                "egress_rules": len(np.spec.egress or []),
+                "labels": np.metadata.labels or {},
+                "creation_timestamp": np.metadata.creation_timestamp.isoformat()
+            } for np in np_list.items]
+        except Exception as e:
+            self._handle_exception(e, f"List NetworkPolicies in {namespace}")
+
+    def delete_network_policy(self, name: str, namespace: str):
+        try:
+            self.networking_v1.delete_namespaced_network_policy(name=name, namespace=namespace)
+            return {"status": "success", "message": f"NetworkPolicy '{name}' eliminata."}
+        except Exception as e:
+            self._handle_exception(e, f"Eliminazione NetworkPolicy '{name}'")
+
+
+    # --- CLUSTER ROLES (cluster-wide) ---
+
+    def list_cluster_roles(self):
+        try:
+            res = self.rbac_v1.list_cluster_role()
+            return [{
+                "name": cr.metadata.name,
+                "rules": len(cr.rules or []),
+                "labels": cr.metadata.labels or {},
+                "creation_timestamp": cr.metadata.creation_timestamp.isoformat()
+            } for cr in res.items]
+        except Exception as e:
+            self._handle_exception(e, "List ClusterRoles")
+
+    def delete_cluster_role(self, name: str):
+        try:
+            self.rbac_v1.delete_cluster_role(name=name)
+            return {"status": "success", "message": f"ClusterRole '{name}' eliminato."}
+        except Exception as e:
+            self._handle_exception(e, f"Eliminazione ClusterRole '{name}'")
+
+
+    # --- CLUSTER ROLE BINDINGS (cluster-wide) ---
+
+    def list_cluster_role_bindings(self):
+        try:
+            res = self.rbac_v1.list_cluster_role_binding()
+            return [{
+                "name": crb.metadata.name,
+                "role_ref": crb.role_ref.name,
+                "subjects": [{"kind": s.kind, "name": s.name, "namespace": s.namespace} for s in crb.subjects or []],
+                "labels": crb.metadata.labels or {},
+                "creation_timestamp": crb.metadata.creation_timestamp.isoformat()
+            } for crb in res.items]
+        except Exception as e:
+            self._handle_exception(e, "List ClusterRoleBindings")
+
+    def delete_cluster_role_binding(self, name: str):
+        try:
+            self.rbac_v1.delete_cluster_role_binding(name=name)
+            return {"status": "success", "message": f"ClusterRoleBinding '{name}' eliminato."}
+        except Exception as e:
+            self._handle_exception(e, f"Eliminazione ClusterRoleBinding '{name}'")
+
+    def get_daemonset_by_name(self, name: str, namespace: str):
+        try:
+            ds = self.apps_v1.read_namespaced_daemon_set(name=name, namespace=namespace)
+            return {
+                "name": ds.metadata.name,
+                "namespace": ds.metadata.namespace,
+                "desired": ds.status.desired_number_scheduled,
+                "ready": ds.status.number_ready,
+                "available": ds.status.number_available or 0,
+                "node_selector": ds.spec.template.spec.node_selector or {},
+                "labels": ds.metadata.labels or {},
+                "annotations": ds.metadata.annotations or {},
+                "creation_timestamp": ds.metadata.creation_timestamp.isoformat(),
+                "resource_version": ds.metadata.resource_version
+            }
+        except Exception as e:
+            self._handle_exception(e, f"Detail DaemonSet '{name}'")
+
+    def get_job_by_name(self, name: str, namespace: str):
+        try:
+            job = self.batch_v1.read_namespaced_job(name=name, namespace=namespace)
+            return {
+                "name": job.metadata.name,
+                "namespace": job.metadata.namespace,
+                "completions": job.spec.completions,
+                "succeeded": job.status.succeeded or 0,
+                "failed": job.status.failed or 0,
+                "active": job.status.active or 0,
+                "start_time": job.status.start_time.isoformat() if job.status.start_time else None,
+                "completion_time": job.status.completion_time.isoformat() if job.status.completion_time else None,
+                "labels": job.metadata.labels or {},
+                "annotations": job.metadata.annotations or {},
+                "creation_timestamp": job.metadata.creation_timestamp.isoformat(),
+                "resource_version": job.metadata.resource_version
+            }
+        except Exception as e:
+            self._handle_exception(e, f"Detail Job '{name}'")
+
+    def get_cronjob_by_name(self, name: str, namespace: str):
+        try:
+            cj = self.batch_v1.read_namespaced_cron_job(name=name, namespace=namespace)
+            return {
+                "name": cj.metadata.name,
+                "namespace": cj.metadata.namespace,
+                "schedule": cj.spec.schedule,
+                "suspend": cj.spec.suspend or False,
+                "active": len(cj.status.active or []),
+                "last_schedule": cj.status.last_schedule_time.isoformat() if cj.status.last_schedule_time else None,
+                "labels": cj.metadata.labels or {},
+                "annotations": cj.metadata.annotations or {},
+                "creation_timestamp": cj.metadata.creation_timestamp.isoformat(),
+                "resource_version": cj.metadata.resource_version
+            }
+        except Exception as e:
+            self._handle_exception(e, f"Detail CronJob '{name}'")
 
     def _handle_exception(self, e: Exception, context: str):
         # 1. Gestione specifica per i TIMEOUT (evita traceback lunghi nei log)

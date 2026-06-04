@@ -193,6 +193,8 @@ class K8sClientFactory:
             "networking_v1":  client.NetworkingV1Api(api_client),
             "storage_v1":     client.StorageV1Api(api_client),
             "authorization_v1": client.AuthorizationV1Api(api_client),
+            "batch_v1": client.BatchV1Api(api_client),
+            "autoscaling_v2": client.AutoscalingV2Api(api_client),
         }
 
     # ---------------------------------------------------------------------------
