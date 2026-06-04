@@ -97,3 +97,87 @@ async function loadRoleBindings() {
         } 
     }
 }
+
+
+// =============================================================================
+// CLUSTER ROLES  (cluster-wide: niente namespace nella URL)
+// =============================================================================
+async function loadClusterRoles() {
+    currentView = 'clusterroles';
+    renderLabelFilter(false);
+
+    const resArea = document.getElementById('resultArea');
+    resArea.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
+    try {
+        const data = await apiCall('/cluster/clusterroles');
+
+        let html = `<h2>Cluster Roles</h2><table class="data-table">
+                    <thead><tr><th>Name</th><th>Permissions</th><th style="text-align:right">Actions</th></tr></thead><tbody>`;
+
+        data.forEach(cr => {
+            html += `<tr>
+                <td><b>${cr.name}</b></td>
+                <td><span class="badge" style="background:#f1f5f9; color:#475569;">${cr.rules} Rules</span></td>
+                <td style="text-align:right">
+                    <button onclick="deleteClusterResource('clusterroles', '${cr.name}')" class="btn-small delete-btn"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>`;
+        });
+
+        resArea.innerHTML = data.length > 0
+            ? html + '</tbody></table>'
+            : `<p style="text-align:center; margin-top:20px; color:var(--text-muted);">No Cluster Roles found.</p>`;
+
+    } catch (err) {
+        if (err.message === 'RESTRICTED') renderRestrictedAccess();
+        else showError(err.message);
+    }
+}
+
+async function loadClusterRoleBindings() {
+    currentView = 'clusterrolebindings';
+    renderLabelFilter(false);
+
+    const resArea = document.getElementById('resultArea');
+    resArea.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
+    try {
+        const data = await apiCall('/cluster/clusterrolebindings');
+
+        let html = `<h2>Cluster Role Bindings</h2>
+                    <table class="data-table" style="table-layout:fixed; width:100%;">
+                        <thead>
+                            <tr>
+                                <th style="width:45%">Name</th>
+                                <th style="width:40%">Role Ref</th>
+                                <th style="width:15%; text-align:right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+
+        data.forEach(crb => {
+            const subCount = crb.subjects ? crb.subjects.length : 0;
+            html += `<tr>
+                <td style="max-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${crb.name}">
+                    <b>${crb.name}</b>
+                </td>
+                <td style="max-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${crb.role_ref}">
+                    <code style="color:var(--accent)">${crb.role_ref}</code>
+                    <span class="badge" style="background:#f0fdf4; color:#166534; margin-left:6px;">${subCount} Subject(s)</span>
+                </td>
+                <td style="text-align:right">
+                    <button onclick="deleteClusterResource('clusterrolebindings', '${crb.name}')" class="btn-small delete-btn"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>`;
+        });
+
+        resArea.innerHTML = data.length > 0
+            ? html + '</tbody></table>'
+            : `<p style="text-align:center; margin-top:20px; color:var(--text-muted);">No Cluster Role Bindings found.</p>`;
+
+    } catch (err) {
+        if (err.message === 'RESTRICTED') renderRestrictedAccess();
+        else showError(err.message);
+    }
+}

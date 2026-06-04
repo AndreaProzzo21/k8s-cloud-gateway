@@ -65,6 +65,18 @@
                 <li id="menu-sts" onclick="setActive(this); loadStatefulSets()">
                     <i class="fas fa-list-ol"></i> Stateful Sets
                 </li>
+                <li id="menu-ds" onclick="setActive(this); loadDaemonSets()">
+                    <i class="fas fa-broadcast-tower"></i> Daemon Sets
+                </li>
+                <li id="menu-jobs" onclick="setActive(this); loadJobs()">
+                    <i class="fas fa-play-circle"></i> Jobs
+                </li>
+                <li id="menu-cj" onclick="setActive(this); loadCronJobs()">
+                    <i class="fas fa-clock"></i> Cron Jobs
+                </li>
+                <li id="menu-hpa" onclick="setActive(this); loadHPAs()">
+                    <i class="fas fa-expand-arrows-alt"></i> Autoscalers (HPA)
+                </li>
                 <li id="menu-upload" onclick="setActive(this); showApplyForm()">
                     <i class="fas fa-file-import"></i> Cluster Apply
                 </li>
@@ -84,6 +96,9 @@
                 <li id="menu-secrets" onclick="setActive(this); loadSecrets()">
                     <i class="fas fa-key"></i> Secrets
                 </li>
+                <li id="menu-netpol" onclick="setActive(this); loadNetworkPolicies()">
+                    <i class="fas fa-traffic-light"></i> Network Policies
+                </li>
             </ul>
 
             <!-- Sezione Access Control -->
@@ -97,6 +112,12 @@
                 </li>
                 <li id="menu-bindings" onclick="setActive(this); loadRoleBindings()">
                     <i class="fas fa-link"></i> Role Bindings
+                </li>
+                <li id="menu-cr" onclick="setActive(this); loadClusterRoles()">
+                    <i class="fas fa-crown"></i> Cluster Roles
+                </li>
+                <li id="menu-crb" onclick="setActive(this); loadClusterRoleBindings()">
+                    <i class="fas fa-users-gear"></i> Cluster Role Bindings
                 </li>
             </ul>
 
@@ -188,7 +209,14 @@
             pvc:             loadPVC,
             pv:              loadPV,
             statefulsets:    loadStatefulSets,
-            storageclasses:  loadStorageClasses
+            storageclasses:  loadStorageClasses,
+            daemonsets:          loadDaemonSets,
+            jobs:                loadJobs,
+            cronjobs:            loadCronJobs,
+            hpa:                 loadHPAs,
+            networkpolicies:     loadNetworkPolicies,
+            clusterroles:        loadClusterRoles,
+            clusterrolebindings: loadClusterRoleBindings,
         };
         const fn = viewMap[window.currentView];
         if (fn) fn();

@@ -462,12 +462,335 @@ async function loadStatefulSets() {
     }
 }
 
+// =============================================================================
+// DAEMONSETS
+// =============================================================================
+
+async function loadDaemonSets() {
+    currentView = 'daemonsets';
+    renderLabelFilter(true);
+
+    const ns = window.currentNamespace;
+    const resArea = document.getElementById('resultArea');
+
+    const labelSelector = document.getElementById('labelFilter')?.value || '';
+    let url = `/namespaces/${ns}/daemonsets`;
+    if (labelSelector) url += `?label_selector=${encodeURIComponent(labelSelector)}`;
+
+    resArea.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
+    try {
+        const data = await apiCall(url);
+
+        let html = `
+            <h2>DaemonSets [${ns}]</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Labels</th>
+                        <th>Desired</th>
+                        <th>Ready</th>
+                        <th>Available</th>
+                        <th>Node Selector</th>
+                        <th style="text-align:right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+        if (!data || data.length === 0) {
+            html += `<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">No DaemonSet found in namespace ${ns}.</td></tr>`;
+        } else {
+            data.forEach(ds => {
+                const isReady = ds.ready === ds.desired;
+                const badgeClass = isReady ? 'status-running' : 'status-pending';
+                const badgeLabel = isReady ? 'Ready' : 'Degraded';
+
+                const nodeSelectorHtml = ds.node_selector && Object.keys(ds.node_selector).length > 0
+                    ? Object.entries(ds.node_selector).map(([k, v]) => `<code style="font-size:0.7rem">${k}=${v}</code>`).join(' ')
+                    : '<span style="color:var(--text-muted); font-size:0.75rem;">All nodes</span>';
+
+                html += `
+                    <tr onclick="inspectResource('daemonsets', '${ds.name}')" class="clickable-row">
+                        <td><b class="resource-name">${ds.name}</b></td>
+                        <td>${renderLabels(ds.labels)}</td>
+                        <td>${ds.desired}</td>
+                        <td><b>${ds.ready}</b></td>
+                        <td><span class="badge ${badgeClass}">${ds.available} ${badgeLabel}</span></td>
+                        <td>${nodeSelectorHtml}</td>
+                        <td style="text-align:right; white-space:nowrap;" onclick="event.stopPropagation()">
+                            <button onclick="deleteResource('daemonsets', '${ds.name}')" class="btn-small delete-btn" title="Delete DaemonSet">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        resArea.innerHTML = html + '</tbody></table>';
+
+    } catch (err) {
+        if (err.message === 'RESTRICTED') renderRestrictedAccess();
+        else showError(err.message);
+    }
+}
+
+
+// =============================================================================
+// JOBS
+// =============================================================================
+
+async function loadJobs() {
+    currentView = 'jobs';
+    renderLabelFilter(true);
+
+    const ns = window.currentNamespace;
+    const resArea = document.getElementById('resultArea');
+
+    const labelSelector = document.getElementById('labelFilter')?.value || '';
+    let url = `/namespaces/${ns}/jobs`;
+    if (labelSelector) url += `?label_selector=${encodeURIComponent(labelSelector)}`;
+
+    resArea.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
+    try {
+        const data = await apiCall(url);
+
+        let html = `
+            <h2>Jobs [${ns}]</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Labels</th>
+                        <th>State</th>
+                        <th style="text-align:center">✓</th>
+                        <th style="text-align:center">✗</th>
+                        <th style="text-align:center">~</th>
+                        <th>Started</th>
+                        <th style="text-align:right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+        if (!data || data.length === 0) {
+            html += `<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">No Job found in namespace ${ns}.</td></tr>`;
+        } else {
+            data.forEach(j => {
+                const isComplete = j.succeeded > 0 && j.active === 0 && j.failed === 0;
+                const hasFailed  = j.failed > 0;
+                const badgeClass = isComplete ? 'status-running' : hasFailed ? 'status-error' : 'status-pending';
+                const badgeLabel = isComplete ? 'Complete' : hasFailed ? 'Failed' : 'Running';
+
+                const startDisplay = j.start_time
+                    ? new Date(j.start_time).toLocaleString('it-IT', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })
+                    : '<span style="color:var(--text-muted)">—</span>';
+
+                html += `
+                    <tr onclick="inspectResource('jobs', '${j.name}')" class="clickable-row">
+                        <td><b class="resource-name">${j.name}</b></td>
+                        <td>${renderLabels(j.labels)}</td>
+                        <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+                        <td style="text-align:center"><b style="color:#16a34a">${j.succeeded}</b></td>
+                        <td style="text-align:center"><b style="color:${j.failed > 0 ? '#dc2626' : 'inherit'}">${j.failed}</b></td>
+                        <td style="text-align:center">${j.active}</td>
+                        <td><small style="color:var(--text-muted)">${startDisplay}</small></td>
+                        <td style="text-align:right; white-space:nowrap;" onclick="event.stopPropagation()">
+                            <button onclick="deleteResource('jobs', '${j.name}')" class="btn-small delete-btn" title="Delete Job">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        resArea.innerHTML = html + '</tbody></table>';
+
+    } catch (err) {
+        if (err.message === 'RESTRICTED') renderRestrictedAccess();
+        else showError(err.message);
+    }
+}
+
+
+// =============================================================================
+// CRONJOBS
+// =============================================================================
+
+async function loadCronJobs() {
+    currentView = 'cronjobs';
+    renderLabelFilter(true);
+
+    const ns = window.currentNamespace;
+    const resArea = document.getElementById('resultArea');
+
+    const labelSelector = document.getElementById('labelFilter')?.value || '';
+    let url = `/namespaces/${ns}/cronjobs`;
+    if (labelSelector) url += `?label_selector=${encodeURIComponent(labelSelector)}`;
+
+    resArea.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
+    try {
+        const data = await apiCall(url);
+
+        let html = `
+            <h2>CronJobs [${ns}]</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Labels</th>
+                        <th>Schedule</th>
+                        <th>Status</th>
+                        <th>Active</th>
+                        <th>Last Schedule</th>
+                        <th style="text-align:right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+        if (!data || data.length === 0) {
+            html += `<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">No CronJob found in namespace ${ns}.</td></tr>`;
+        } else {
+            data.forEach(cj => {
+                const badgeClass = cj.suspend ? 'status-pending' : 'status-running';
+                const badgeLabel = cj.suspend ? 'Suspended' : 'Active';
+
+                const lastSched = cj.last_schedule
+                    ? new Date(cj.last_schedule).toLocaleString()
+                    : '<span style="color:var(--text-muted)">Never</span>';
+
+                html += `
+                    <tr onclick="inspectResource('cronjobs', '${cj.name}')" class="clickable-row">
+                        <td><b class="resource-name">${cj.name}</b></td>
+                        <td>${renderLabels(cj.labels)}</td>
+                        <td><code style="font-size:0.8rem; background:#f1f5f9; padding:2px 6px; border-radius:4px;">${cj.schedule}</code></td>
+                        <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+                        <td>${cj.active}</td>
+                        <td><small>${lastSched}</small></td>
+                        <td style="text-align:right; white-space:nowrap;" onclick="event.stopPropagation()">
+                            <button onclick="deleteResource('cronjobs', '${cj.name}')" class="btn-small delete-btn" title="Delete CronJob">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        resArea.innerHTML = html + '</tbody></table>';
+
+    } catch (err) {
+        if (err.message === 'RESTRICTED') renderRestrictedAccess();
+        else showError(err.message);
+    }
+}
+
+
+// =============================================================================
+// HPA — invariato, nessuna inspect per ora
+// =============================================================================
+
+async function loadHPAs() {
+    currentView = 'hpa';
+    renderLabelFilter(true);
+
+    const ns = window.currentNamespace;
+    const resArea = document.getElementById('resultArea');
+
+    const labelSelector = document.getElementById('labelFilter')?.value || '';
+    let url = `/namespaces/${ns}/hpa`;
+    if (labelSelector) url += `?label_selector=${encodeURIComponent(labelSelector)}`;
+
+    resArea.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
+    try {
+        const data = await apiCall(url);
+
+        let html = `
+            <h2>Horizontal Pod Autoscalers [${ns}]</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Labels</th>
+                        <th>Target</th>
+                        <th>Min</th>
+                        <th>Max</th>
+                        <th>Current</th>
+                        <th>Desired</th>
+                        <th style="text-align:right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+        if (!data || data.length === 0) {
+            html += `<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">No HPA found in namespace ${ns}.</td></tr>`;
+        } else {
+            data.forEach(hpa => {
+                const atMax = hpa.current_replicas >= hpa.max_replicas;
+                const replicaColor = atMax ? '#dc2626' : '#16a34a';
+
+                html += `
+                    <tr>
+                        <td><b class="resource-name">${hpa.name}</b></td>
+                        <td>${renderLabels(hpa.labels)}</td>
+                        <td>
+                            <span style="font-size:0.7rem; background:#f1f5f9; padding:2px 5px; border-radius:4px; color:#475569; font-weight:600;">${hpa.target_kind}</span>
+                            <code style="font-size:0.8rem; margin-left:4px;">${hpa.target}</code>
+                        </td>
+                        <td>${hpa.min_replicas}</td>
+                        <td>${hpa.max_replicas}</td>
+                        <td><b style="color:${replicaColor}">${hpa.current_replicas}</b></td>
+                        <td>${hpa.desired_replicas}</td>
+                        <td style="text-align:right; white-space:nowrap;">
+                            <button onclick="deleteResource('hpa', '${hpa.name}')" class="btn-small delete-btn" title="Delete HPA">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        resArea.innerHTML = html + '</tbody></table>';
+
+    } catch (err) {
+        if (err.message === 'RESTRICTED') renderRestrictedAccess();
+        else showError(err.message);
+    }
+}
+
+
+// =============================================================================
+// HELPER — DELETE CLUSTER-WIDE
+// =============================================================================
+
+async function deleteClusterResource(type, name) {
+    const confirmed = await showConfirm(
+        "Confirm Deletion",
+        `Are you sure you want to delete ${type} <strong>${name}</strong>? This action cannot be undone.`,
+        true
+    );
+    if (!confirmed) return;
+
+    try {
+        await apiCall(`/cluster/${type}/${name}`, 'DELETE');
+        showSuccess(`${type} '${name}' successfully deleted.`);
+        refreshCurrentView();
+    } catch (err) {
+        showError(err.message);
+    }
+}
+
+
+// =============================================================================
+// INSPECT + MODAL — completo
+// =============================================================================
+
 async function inspectResource(type, name) {
     const ns = window.currentNamespace;
-    
     try {
         const data = await apiCall(`/namespaces/${ns}/${type}/${name}`);
-        console.log("Dati ricevuti dal backend:", data); // Verifica se il JSON è completo
+        console.log("Dati ricevuti dal backend:", data);
         showInspectorModal(data);
     } catch (err) {
         showError("Incapable of retrieving details: " + err.message);
@@ -476,7 +799,7 @@ async function inspectResource(type, name) {
 
 function showInspectorModal(info) {
     let overlay = document.getElementById('inspector-overlay');
-    
+
     if (!overlay) {
         overlay = document.createElement('div');
         overlay.id = 'inspector-overlay';
@@ -491,7 +814,6 @@ function showInspectorModal(info) {
             backdrop-filter: blur(6px);
         `;
         document.body.appendChild(overlay);
-        
         overlay.onclick = (e) => {
             if (e.target === overlay) overlay.style.display = 'none';
         };
@@ -499,7 +821,7 @@ function showInspectorModal(info) {
 
     overlay.style.display = 'flex';
 
-    // --- LOGICA DI RILEVAMENTO TIPO ---
+    // --- RILEVAMENTO TIPO ---
     let type = 'Unknown';
     let icon = 'fa-info-circle';
     let accentColor = '#b59a00';
@@ -507,18 +829,33 @@ function showInspectorModal(info) {
     if (info.pod_ip || info.host_ip) {
         type = 'Pod';
         icon = 'fa-cube';
+        accentColor = '#b59a00';
     } else if (info.strategy || info.replicas_spec !== undefined) {
         type = 'Deployment';
         icon = 'fa-layer-group';
+        accentColor = '#b59a00';
     } else if (info.cluster_ip || info.type) {
         type = 'Service';
         icon = 'fa-project-diagram';
+        accentColor = '#b59a00';
+    } else if (info.desired !== undefined && info.node_selector !== undefined) {
+        type = 'DaemonSet';
+        icon = 'fa-broadcast-tower';
+        accentColor = '#7c3aed';
+    } else if (info.schedule !== undefined) {
+        type = 'CronJob';
+        icon = 'fa-clock';
+        accentColor = '#0369a1';
+    } else if (info.succeeded !== undefined || info.completions !== undefined) {
+        type = 'Job';
+        icon = 'fa-play-circle';
+        accentColor = '#16a34a';
     }
 
     const creationDate = info.creation_timestamp || info.start_time;
     const formattedDate = creationDate ? new Date(creationDate).toLocaleString() : 'N/A';
 
-    // --- RENDERIZZAZIONE GRID DINAMICA ---
+    // --- GRID DINAMICA ---
     let gridHtml = '';
     if (type === 'Pod') {
         gridHtml = `
@@ -541,9 +878,36 @@ function showInspectorModal(info) {
             <div class="grid-item"><strong>Session Affinity</strong> <span>${info.session_affinity || 'None'}</span></div>
             <div class="grid-item"><strong>Selector</strong> <span style="font-size:0.7rem; color:#718096;">${info.selector ? Object.entries(info.selector).map(([k,v]) => `${k}=${v}`).join(', ') : 'None'}</span></div>
         `;
+    } else if (type === 'DaemonSet') {
+        gridHtml = `
+            <div class="grid-item"><strong>Desired</strong> <span>${info.desired}</span></div>
+            <div class="grid-item"><strong>Ready</strong> <span class="badge ${info.ready === info.desired ? 'status-running' : 'status-pending'}">${info.ready} / ${info.desired}</span></div>
+            <div class="grid-item"><strong>Available</strong> <span>${info.available}</span></div>
+            <div class="grid-item"><strong>Node Selector</strong> <span style="font-size:0.7rem; color:#718096;">${info.node_selector && Object.keys(info.node_selector).length > 0 ? Object.entries(info.node_selector).map(([k,v]) => `${k}=${v}`).join(', ') : 'All nodes'}</span></div>
+        `;
+    } else if (type === 'CronJob') {
+        gridHtml = `
+            <div class="grid-item"><strong>Schedule</strong> <code style="font-size:0.8rem">${info.schedule}</code></div>
+            <div class="grid-item"><strong>Status</strong> <span class="badge ${info.suspend ? 'status-pending' : 'status-running'}">${info.suspend ? 'Suspended' : 'Active'}</span></div>
+            <div class="grid-item"><strong>Active Jobs</strong> <span>${info.active}</span></div>
+            <div class="grid-item"><strong>Last Schedule</strong> <span>${info.last_schedule ? new Date(info.last_schedule).toLocaleString() : 'Never'}</span></div>
+        `;
+    } else if (type === 'Job') {
+        const jobState = info.succeeded > 0 && info.active === 0 ? 'status-running'
+                       : info.failed > 0 ? 'status-error'
+                       : 'status-pending';
+        const jobLabel = info.succeeded > 0 && info.active === 0 ? 'Complete'
+                       : info.failed > 0 ? 'Failed'
+                       : 'Running';
+        gridHtml = `
+            <div class="grid-item"><strong>State</strong> <span class="badge ${jobState}">${jobLabel}</span></div>
+            <div class="grid-item"><strong>Completions</strong> <span>${info.completions ?? '∞'}</span></div>
+            <div class="grid-item"><strong>Succeeded</strong> <span style="color:#16a34a; font-weight:600;">${info.succeeded}</span></div>
+            <div class="grid-item"><strong>Failed</strong> <span style="color:${info.failed > 0 ? '#dc2626' : 'inherit'}; font-weight:600;">${info.failed}</span></div>
+        `;
     }
 
-    // --- SEZIONE PORTE (SOLO PER SERVICE) ---
+    // --- PORTE (solo Service) ---
     let portsSection = '';
     if (type === 'Service' && info.ports && info.ports.length > 0) {
         portsSection = `
@@ -568,7 +932,7 @@ function showInspectorModal(info) {
         `;
     }
 
-    // --- GESTIONE ANNOTATIONS ---
+    // --- ANNOTATIONS ---
     const annotationsHtml = info.annotations && Object.keys(info.annotations).length > 0
         ? Object.entries(info.annotations)
             .filter(([k]) => !k.includes('kubectl.kubernetes.io/last-applied-configuration'))
@@ -597,7 +961,7 @@ function showInspectorModal(info) {
                     <i class="fas fa-times"></i>
                 </button>
             </div>
-            
+
             <div class="inspector-body">
                 <div class="ins-section">
                     <h4><i class="fas fa-list-ul"></i> Configuration & Status</h4>
@@ -617,8 +981,8 @@ function showInspectorModal(info) {
                             <div class="container-subcard">
                                 <div class="subcard-header">
                                     <span class="cont-name"><i class="fas fa-microchip"></i> ${c.name}</span>
-                                    ${c.ready !== undefined ? 
-                                        `<span class="badge ${c.ready ? 'status-running' : 'status-pending'}">${c.ready ? 'Ready' : 'Not Ready'}</span>` 
+                                    ${c.ready !== undefined ?
+                                        `<span class="badge ${c.ready ? 'status-running' : 'status-pending'}">${c.ready ? 'Ready' : 'Not Ready'}</span>`
                                         : ''}
                                 </div>
                                 <div class="subcard-body">
@@ -636,7 +1000,7 @@ function showInspectorModal(info) {
                 <div class="ins-section">
                     <h4><i class="fas fa-tags"></i> Labels</h4>
                     <div class="labels-container" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 180px; overflow-y: auto; padding: 4px;">
-                        ${info.labels && Object.keys(info.labels).length > 0 
+                        ${info.labels && Object.keys(info.labels).length > 0
                             ? Object.entries(info.labels).map(([k, v]) => `
                                 <div class="label-pill" style="display: flex; align-items: center; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.72rem; overflow: hidden; white-space: nowrap;">
                                     <span style="background: #e2e8f0; padding: 2px 6px; color: #475569; font-weight: 600; border-right: 1px solid #cbd5e0;">${k}</span>

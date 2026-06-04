@@ -249,5 +249,78 @@ async function loadIngress() {
     }
 }
 
+// =============================================================================
+// NETWORK POLICIES
+// =============================================================================
+
+async function loadNetworkPolicies() {
+    currentView = 'networkpolicies';
+    renderLabelFilter(true);
+
+    const ns = window.currentNamespace;
+    const resArea = document.getElementById('resultArea');
+
+    const labelSelector = document.getElementById('labelFilter')?.value || '';
+    let url = `/namespaces/${ns}/networkpolicies`;
+    if (labelSelector) url += `?label_selector=${encodeURIComponent(labelSelector)}`;
+
+    resArea.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
+    try {
+        const data = await apiCall(url);
+
+        let html = `
+            <h2>Network Policies [${ns}]</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Labels</th>
+                        <th>Pod Selector</th>
+                        <th>Policy Types</th>
+                        <th>Ingress Rules</th>
+                        <th>Egress Rules</th>
+                        <th style="text-align:right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+        if (!data || data.length === 0) {
+            html += `<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">No NetworkPolicy found in namespace ${ns}.</td></tr>`;
+        } else {
+            data.forEach(np => {
+                const podSelectorHtml = np.pod_selector && Object.keys(np.pod_selector).length > 0
+                    ? Object.entries(np.pod_selector).map(([k, v]) => `<code style="font-size:0.7rem">${k}=${v}</code>`).join(' ')
+                    : '<span style="color:var(--text-muted); font-size:0.75rem;">All pods</span>';
+
+                const typesHtml = (np.policy_types || []).map(t =>
+                    `<span style="font-size:0.7rem; background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-weight:600;">${t}</span>`
+                ).join(' ');
+
+                html += `
+                    <tr>
+                        <td><b class="resource-name">${np.name}</b></td>
+                        <td>${renderLabels(np.labels)}</td>
+                        <td>${podSelectorHtml}</td>
+                        <td>${typesHtml || '<span style="color:var(--text-muted)">—</span>'}</td>
+                        <td>${np.ingress_rules}</td>
+                        <td>${np.egress_rules}</td>
+                        <td style="text-align:right; white-space:nowrap;">
+                            <button onclick="deleteResource('networkpolicies', '${np.name}')" class="btn-small delete-btn" title="Delete NetworkPolicy">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        resArea.innerHTML = html + '</tbody></table>';
+
+    } catch (err) {
+        if (err.message === 'RESTRICTED') renderRestrictedAccess();
+        else showError(err.message);
+    }
+}
+
 
 
