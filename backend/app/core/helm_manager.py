@@ -278,6 +278,7 @@ class HelmManager:
         atomic: bool = False,
         wait: bool = False,
         timeout_seconds: int = 300,
+        dry_run: bool = False,
     ) -> dict:
         """
         Esegue ``helm upgrade --install`` (crea se non esiste, aggiorna se esiste).
@@ -300,10 +301,15 @@ class HelmManager:
             Se True aggiunge ``--create-namespace``. Default: True.
         atomic : bool
             Se True aggiunge ``--atomic``: rollback automatico in caso di errore.
+            Ignorato se dry_run è True.
         wait : bool
             Se True aggiunge ``--wait``: attende che tutte le risorse siano Ready.
+            Ignorato se dry_run è True.
         timeout_seconds : int
             Timeout passato a ``--timeout`` (secondi). Usato solo se ``wait=True``.
+        dry_run : bool
+            Se True aggiunge ``--dry-run``: simula l'installazione senza alterare
+            il cluster. Restituisce i manifest renderizzati in JSON.
 
         Returns
         -------
@@ -317,10 +323,16 @@ class HelmManager:
             args.append("--create-namespace")
         if version:
             args.extend(["--version", version])
-        if atomic:
+            
+        # --atomic e --wait non hanno senso in modalità dry-run e causerebbero
+        # un fallimento del comando su cluster reali se il namespace non esiste ancora.
+        if atomic and not dry_run:
             args.append("--atomic")
-        if wait:
+        if wait and not dry_run:
             args.extend(["--wait", "--timeout", f"{timeout_seconds}s"])
+            
+        if dry_run:
+            args.append("--dry-run")
 
         # I valori di override vengono scritti su un file temporaneo con 0o600.
         values_file: str | None = None
@@ -348,6 +360,7 @@ class HelmManager:
                     os.remove(values_file)
                 except OSError:
                     pass
+
 
     async def uninstall(
         self,
@@ -609,6 +622,7 @@ class HelmManager:
         create_namespace: bool = False,
         atomic: bool = False,
         wait: bool = False,
+        dry_run: bool = False,
     ) -> dict:
         """
         Installs a Helm chart from a local archive file (ZIP, TGZ, TAR.GZ, …).
@@ -633,6 +647,8 @@ class HelmManager:
             Pass --atomic (auto-rollback on failure) if True.
         wait : bool
             Pass --wait (block until resources are Ready) if True.
+        dry_run : bool
+            Pass --dry-run (simulate installation) if True.
     
         Returns
         -------
@@ -677,11 +693,11 @@ class HelmManager:
                 create_namespace=create_namespace,
                 atomic=atomic,
                 wait=wait,
+                dry_run=dry_run,
             )
     
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
-    
     
     async def lint(
         self,

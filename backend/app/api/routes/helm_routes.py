@@ -168,6 +168,10 @@ async def install_or_upgrade_chart(
         300, ge=10, le=600,
         description="Timeout per --wait/--atomic in secondi",
     ),
+    dry_run: bool = Query(
+        False,
+        description="Simula l'installazione e restituisce i manifest generati senza applicare modifiche sul cluster (--dry-run)",
+    ),
     # Body JSON opzionale: valori di override.
     # FastAPI lo deserializza quando Content-Type: application/json.
     # Endpoint separato (from-zip) gestisce multipart/form-data.
@@ -180,6 +184,7 @@ async def install_or_upgrade_chart(
     """
     Installa o aggiorna una release Helm (``helm upgrade --install``).
     Se la release non esiste viene creata; se esiste viene aggiornata.
+    Se dry_run=True, il cluster non viene modificato.
     """
     result = await manager.install_or_upgrade(
         release_name=release_name,
@@ -191,9 +196,11 @@ async def install_or_upgrade_chart(
         atomic=atomic,
         wait=wait,
         timeout_seconds=timeout_seconds,
+        dry_run=dry_run,
     )
-    return _require_success(result, f"helm upgrade --install {release_name}")
-
+    
+    op_desc = f"helm upgrade --install {release_name}" + (" (dry-run)" if dry_run else "")
+    return _require_success(result, op_desc)
 
 
 @router.post(
@@ -459,6 +466,7 @@ async def install_from_package_route(
     atomic:           bool          = Query(False),
     wait:             bool          = Query(False),
     create_namespace: bool          = Query(False),
+    dry_run:          bool          = Query(False, description="Simula l'installazione senza alterare il cluster (--dry-run)"),
     manager:          HelmManager   = Depends(get_helm_manager),
 ):
     """
@@ -510,6 +518,7 @@ async def install_from_package_route(
             atomic=atomic,
             wait=wait,
             create_namespace=create_namespace,
+            dry_run=dry_run,
         )
  
     finally:
@@ -519,4 +528,5 @@ async def install_from_package_route(
             except OSError:
                 pass
  
-    return _require_success(result, f"helm install from package → {release_name}")
+    op_desc = f"helm install from package → {release_name}" + (" (dry-run)" if dry_run else "")
+    return _require_success(result, op_desc)
