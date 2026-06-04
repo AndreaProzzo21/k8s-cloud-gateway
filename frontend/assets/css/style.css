@@ -558,6 +558,8 @@ body {
     color: #ffffff;
 }
 
+
+
 /* ════════════════════════════════════════
    CONTENT
 ════════════════════════════════════════ */
@@ -844,13 +846,19 @@ button[onclick*="deleteResource"]:hover {
 .status-running {
     background: #ecfdf5;
     color: #0a7a55;
-    border-color: #a7f3d0;
+    border: 1px solid #a7f3d0;
 }
 
 .status-pending {
     background: #fffbeb;
     color: #a16207;
-    border-color: #fde68a;
+    border: 1px solid #fde68a;
+}
+
+.status-error {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
 }
 
 /* ════════════════════════════════════════
