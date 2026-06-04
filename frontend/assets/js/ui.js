@@ -453,3 +453,73 @@ function renderLabelFilter(visible = false) {
         document.getElementById('labelFilter').value = savedValue;
     }
 }
+
+// --- FUNZIONE PER AGGIORNARE IL PALLINO DEGLI EVENTI ---
+function updateEventsBadge(count) {
+    const badge = document.getElementById('events-badge');
+    if (badge) {
+        if (count > 0) {
+            badge.innerText = count;
+            badge.style.display = 'inline-block';
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+}
+
+// --- WORKER IN BACKGROUND PER GLI EVENTI (VERSIONE INTELLIGENTE) ---
+async function pollEventsSilently() {
+    try {
+        const ns = window.currentNamespace;
+        if (!ns || ns === 'undefined') return;
+
+        const data = await apiCall(`/namespaces/${ns}/events`);
+        
+        if (!data || data.length === 0) {
+            updateEventsBadge(0);
+            return;
+        }
+
+        // 1. Tagliamo gli eventi troppo vecchi (analizziamo solo i 20 più recenti)
+        const recentEvents = data.slice(0, 20);
+
+        // 2. Mappa per registrare SOLO L'ULTIMO STATO noto di ogni singola risorsa
+        const objectStatus = new Map();
+
+        recentEvents.forEach(e => {
+            const objectName = e.object || 'Unknown';
+            
+            // Poiché l'array è ordinato dal più nuovo al più vecchio, entriamo
+            // in questo 'if' SOLO per il primo evento (il più recente) di quella risorsa.
+            if (!objectStatus.has(objectName)) {
+                
+                const reason = (e.reason || "").toLowerCase();
+                
+                // NOTA: Sfruttiamo 'e.type === "Warning"' che è nativo di K8s, 
+                // più i nostri filtri testuali per sicurezza
+                const isWarning = e.type === 'Warning' || 
+                                  reason.includes('fail') || 
+                                  reason.includes('kill') || 
+                                  reason.includes('backoff') ||
+                                  reason.includes('unhealthy') ||
+                                  reason.includes('error') ||
+                                  reason.includes('evicted');
+                
+                // Salviamo lo stato attuale della risorsa (true = in allarme, false = ok)
+                objectStatus.set(objectName, isWarning);
+            }
+        });
+
+        // 3. Contiamo solo quante risorse si trovano ATTUALMENTE in stato di allarme
+        let activeWarnings = 0;
+        objectStatus.forEach((isWarning, objName) => {
+            if (isWarning) activeWarnings++;
+        });
+
+        // Aggiorna la UI
+        updateEventsBadge(activeWarnings);
+
+    } catch (err) {
+        console.warn("Background events polling failed. Retrying later.");
+    }
+}

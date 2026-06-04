@@ -1809,26 +1809,6 @@
         } catch (e) { toast(e.message, 'error'); }
     }
 
-    // ── OBSERVERS ──
-    function renderObservers() {
-        document.getElementById('mainContent').innerHTML = `
-            <div class="page-header">
-                <div><div class="page-title">Observers</div><div class="page-desc">Continuous watchers that stream cluster events to this console in real time</div></div>
-            </div>
-            <div class="feature-section">
-                <div class="feature-intro">
-                    <div class="feature-icon fi-orange"><i class="fas fa-eye"></i></div>
-                    <div><h2>Real-time Observation Layer</h2><p>Live event streaming and anomaly detection across all clusters. Observers run persistently and surface conditions the Fleet scanner would otherwise miss between polling cycles.</p></div>
-                </div>
-                <div class="audit-grid">
-                    ${auditCard('Pod Restart Observer','Alert when a pod exceeds N restarts within a configurable sliding time window.','roadmap')}
-                    ${auditCard('Node Pressure Watch','Detect MemoryPressure or DiskPressure conditions on any node in the fleet.','roadmap')}
-                    ${auditCard('Deployment Health','Track deployment replica counts vs desired and surface degraded rollouts.','roadmap')}
-                    ${auditCard('Certificate Expiry','Warn when cluster CA or ingress TLS certificates are within 30 days of expiry.','roadmap')}
-                </div>
-            </div>`;
-    }
-
     // ── MODALS ──
     function openClusterModal(data = null) {
         const isEdit = !!data;

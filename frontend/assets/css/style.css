@@ -558,6 +558,16 @@ body {
     color: #ffffff;
 }
 
+.alert-badge {
+    background-color: #ef4444; /* Rosso */
+    color: white;
+    font-size: 0.75rem;
+    font-weight: bold;
+    padding: 2px 8px;
+    border-radius: 12px;
+    box-shadow: 0 0 5px rgba(239, 68, 68, 0.5);
+}
+
 
 
 /* ════════════════════════════════════════

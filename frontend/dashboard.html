@@ -48,6 +48,7 @@
                 </li>
                 <li id="menu-events" onclick="setActive(this); loadEvents()">
                     <i class="fas fa-bell"></i> Events Log
+                    <span id="events-badge" class="alert-badge" style="display: none; background-color: #ef4444; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: bold;">0</span>
                 </li>
                 <li id="menu-namespaces" onclick="setActive(this); loadNamespace()">
                     <i class="fas fa-folder-tree"></i> Namespaces
@@ -227,6 +228,7 @@
         window.currentNamespace = val;
         localStorage.setItem('last_ns', val);
         refreshCurrentView();
+        pollEventsSilently();
     }
 
     async function logout() {
@@ -310,6 +312,9 @@
     }
 
     initDashboard();
+
+    setTimeout(pollEventsSilently, 2000); // Primo avvio dopo 2 secondi
+    setInterval(pollEventsSilently, 60000); // Controllo ogni 45 secondi
     </script>
 
 </body>
