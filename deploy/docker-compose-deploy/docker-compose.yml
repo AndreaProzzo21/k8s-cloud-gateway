@@ -1,8 +1,8 @@
 services:
   # --- BACKEND: API GATEWAY ---
   backend:
-    image: aprozzo/k8s-gateway-backend:1.0.0
-    container_name: k8s_gateway_backend_v1
+    image: aprozzo/k8s-gateway-backend:latest
+    container_name: k8s_gateway_backend
     expose:
       - "8000"
     env_file:
@@ -27,8 +27,8 @@ services:
 
   # --- FRONTEND: REVERSE PROXY & UI ---
   frontend:
-    image: aprozzo/k8s-gateway-frontend:1.0.0
-    container_name: k8s_gateway_frontend_v1
+    image: aprozzo/k8s-gateway-frontend:latest
+    container_name: k8s_gateway_frontend
     ports:
       - "80:80"
     networks:
