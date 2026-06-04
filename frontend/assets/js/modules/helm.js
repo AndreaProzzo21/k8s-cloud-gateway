@@ -604,6 +604,10 @@ function showInstallForm(chartRef, version) {
                         <input type="checkbox" id="inst_wait" style="width:15px; height:15px;">
                         Wait for ready
                     </label>
+                    <label style="display:flex; align-items:center; gap:7px; font-size:0.82rem; cursor:pointer; color:var(--accent); font-weight:600;">
+                        <input type="checkbox" id="inst_dry_run" style="width:15px; height:15px;">
+                        Simulate (Dry-Run)
+                    </label>
                 </div>
             </div>
 
@@ -634,6 +638,7 @@ async function executeInstall(chartRef) {
     const version     = document.getElementById('inst_version')?.value?.trim() || null;
     const atomic      = document.getElementById('inst_atomic')?.checked;
     const wait        = document.getElementById('inst_wait')?.checked;
+    const dryRun      = document.getElementById('inst_dry_run')?.checked;
     const valuesRaw   = document.getElementById('inst_values')?.value?.trim();
 
     if (!releaseName) { showError("Release name is required."); return; }
@@ -646,10 +651,13 @@ async function executeInstall(chartRef) {
 
     const btn = document.querySelector('#install-form-panel .btn-action');
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deploying...';
+    // Feedback visivo diverso per la simulazione
+    btn.innerHTML = dryRun 
+        ? '<i class="fas fa-spinner fa-spin"></i> Simulating...' 
+        : '<i class="fas fa-spinner fa-spin"></i> Deploying...';
 
     try {
-        const params = { chart_ref: chartRef, create_namespace: true, atomic, wait };
+        const params = { chart_ref: chartRef, create_namespace: true, atomic, wait, dry_run: dryRun };
         if (version) params.version = version;
 
         const result = await _helmPost(
@@ -658,10 +666,25 @@ async function executeInstall(chartRef) {
             values
         );
 
-        document.getElementById('install-result').innerHTML =
-            _renderResultBox(result, `Release "${releaseName}" deployed successfully.`);
+        if (dryRun && result.success) {
+            // Estrae il manifest generato da Helm e lo mostra in un blocco di codice
+            const manifestYaml = result.data?.manifest || "(No manifest generated)";
+            document.getElementById('install-result').innerHTML = `
+                <div style="margin-top:16px; padding:16px; background:#f8fafc; border-radius:10px; border:1px solid var(--accent);">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                        <i class="fas fa-flask" style="color:var(--accent);"></i>
+                        <b style="font-size:0.9rem; color:var(--accent);">Simulation Success (Dry-Run)</b>
+                    </div>
+                    <pre style="font-size:0.75rem; background:#1e293b; color:#e2e8f0; border-radius:8px; padding:14px; overflow-x:auto; max-height:400px; white-space:pre-wrap; margin:0;">${manifestYaml}</pre>
+                </div>
+            `;
+        } else {
+            // Comportamento standard per il deploy reale
+            document.getElementById('install-result').innerHTML =
+                _renderResultBox(result, `Release "${releaseName}" deployed successfully.`);
 
-        if (result.success) setTimeout(() => loadReleases(), 2000);
+            if (result.success) setTimeout(() => loadReleases(), 2000);
+        }
 
     } catch (err) {
         document.getElementById('install-result').innerHTML =
@@ -936,13 +959,20 @@ function showZipUpload() {
                 style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--border);
                        font-family:monospace; font-size:0.8rem; box-sizing:border-box; margin-bottom:14px;"></textarea>
 
-            <button onclick="lintZipChart()" class="btn-action" id="btnLintZip"
-                    style="background:#fff; color:var(--accent); border:1px solid var(--accent);">
-                <i class="fas fa-stethoscope"></i> Lint
-            </button>
-            <button onclick="executeZipDeploy()" class="btn-action" style="width:50%;" id="zipDeployBtn">
-                <i class="fas fa-upload"></i> Upload & Deploy
-            </button>
+            <div style="display:flex; align-items:center; gap:15px; margin-top:14px;">
+                <button onclick="lintZipChart()" class="btn-action" id="btnLintZip"
+                        style="background:#fff; color:var(--accent); border:1px solid var(--accent); padding:10px 20px;">
+                    <i class="fas fa-stethoscope"></i> Lint
+                </button>
+                <button onclick="executeZipDeploy()" class="btn-action" style="flex:1; padding:10px 20px;" id="zipDeployBtn">
+                    <i class="fas fa-upload"></i> Upload & Deploy
+                </button>
+                <label style="display:flex; align-items:center; gap:7px; font-size:0.85rem; cursor:pointer; color:var(--accent); font-weight:600; padding:10px 0;">
+                    <input type="checkbox" id="zip_dry_run" style="width:16px; height:16px; accent-color:var(--accent);">
+                    Simulate
+                </label>
+            </div>
+            
             <div id="zip-result" style="margin-top:14px;"></div>
         </div>`;
 }
@@ -970,6 +1000,7 @@ async function executeZipDeploy() {
     const namespace   = document.getElementById('zip_namespace')?.value?.trim() || window.currentNamespace;
     const fileInput   = document.getElementById('zipFileInput');
     const valuesRaw   = document.getElementById('zip_values')?.value?.trim();
+    const dryRun      = document.getElementById('zip_dry_run')?.checked; // <--- LETTURA DRY RUN
     const resultDiv   = document.getElementById('zip-result');
 
     if (!releaseName) { showError("Release name is required."); return; }
@@ -989,7 +1020,10 @@ async function executeZipDeploy() {
 
     const btn = document.getElementById('zipDeployBtn');
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading & Deploying...';
+    // Feedback visivo diverso per la simulazione
+    btn.innerHTML = dryRun 
+        ? '<i class="fas fa-spinner fa-spin"></i> Simulating...' 
+        : '<i class="fas fa-spinner fa-spin"></i> Uploading & Deploying...';
     resultDiv.innerHTML = '';
 
     try {
@@ -999,6 +1033,7 @@ async function executeZipDeploy() {
             atomic:           'false',
             wait:             'false',
             create_namespace: 'true',
+            dry_run:          dryRun.toString() // <--- PASSAGGIO DEL PARAMETRO
         });
         if (valuesJson) qs.set('values_json', valuesJson);
 
@@ -1008,8 +1043,23 @@ async function executeZipDeploy() {
         const url = `/helm/namespaces/${namespace}/releases/${releaseName}/package?${qs}`;
         const result = await apiCall(url, 'POST', false, formData);
 
-        resultDiv.innerHTML = _renderResultBox(result, `Chart deployed as "${releaseName}" in namespace "${namespace}".`);
-        if (result.success) setTimeout(() => loadReleases(), 2000);
+        if (dryRun && result.success) {
+            // Se è un dry-run, mostriamo il manifest generato in un blocco di codice
+            const manifestYaml = result.data?.manifest || "(No manifest generated)";
+            resultDiv.innerHTML = `
+                <div style="margin-top:16px; padding:16px; background:#f8fafc; border-radius:10px; border:1px solid var(--accent);">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                        <i class="fas fa-flask" style="color:var(--accent);"></i>
+                        <b style="font-size:0.9rem; color:var(--accent);">Simulation Success (Dry-Run)</b>
+                    </div>
+                    <pre style="font-size:0.75rem; background:#1e293b; color:#e2e8f0; border-radius:8px; padding:14px; overflow-x:auto; max-height:400px; white-space:pre-wrap; margin:0;">${manifestYaml}</pre>
+                </div>
+            `;
+        } else {
+            // Comportamento standard per il deploy reale
+            resultDiv.innerHTML = _renderResultBox(result, `Chart deployed as "${releaseName}" in namespace "${namespace}".`);
+            if (result.success) setTimeout(() => loadReleases(), 2000);
+        }
 
     } catch (err) {
         resultDiv.innerHTML = _renderResultBox({ success: false, stderr: err.message });
